@@ -1,0 +1,112 @@
+{
+  "id": "S01",
+  "title": "Conveyor Won't Start",
+  "difficulty": 1,
+  "tier": 1,
+  "environment": "factory",
+  "briefing": "The conveyor belt on Line 1 won't start. The operator hit the start button three times and nothing happened. The motor control centre shows no faults. Production is stopped. Find the fault and get it running.",
+  "timeLimit": 600,
+  "tags": [
+    {
+      "id": "I0.0",
+      "label": "START_BTN",
+      "type": "BOOL",
+      "value": false,
+      "description": "Momentary start pushbutton — normally open, closes when pressed"
+    },
+    {
+      "id": "I0.1",
+      "label": "ESTOP_NC",
+      "type": "BOOL",
+      "value": true,
+      "description": "Emergency stop — normally closed contact. TRUE = circuit intact, FALSE = E-stop pressed or wiring fault"
+    },
+    {
+      "id": "I0.2",
+      "label": "OVERLOAD_RESET",
+      "type": "BOOL",
+      "value": true,
+      "description": "Motor overload thermal relay — normally closed. Opens on overload trip."
+    },
+    {
+      "id": "M0.0",
+      "label": "MOTOR_SEAL",
+      "type": "BOOL",
+      "value": false,
+      "description": "Memory bit — seals the start circuit so motor keeps running after start button is released"
+    },
+    {
+      "id": "Q0.0",
+      "label": "M1_RUN",
+      "type": "BOOL",
+      "value": false,
+      "description": "Motor 1 run output — energises the motor starter contactor"
+    },
+    {
+      "id": "Q0.1",
+      "label": "RUN_INDICATOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Panel indicator lamp — illuminates when motor is running"
+    }
+  ],
+  "rungs": [
+    {
+      "id": 1,
+      "description": "Start latch: (START OR SEAL) AND ESTOP AND OVERLOAD → motor run",
+      "condition": "(I0.0 OR M0.0) AND I0.1 AND I0.2",
+      "output": "Q0.0"
+    },
+    {
+      "id": 2,
+      "description": "Seal bit: copies motor run output to seal memory",
+      "condition": "Q0.0",
+      "output": "M0.0"
+    },
+    {
+      "id": 3,
+      "description": "Run indicator lamp mirrors motor run",
+      "condition": "Q0.0",
+      "output": "Q0.1"
+    }
+  ],
+  "faults": [
+    {
+      "id": "F01",
+      "type": "wiring_nc_no_swap",
+      "targetTag": "I0.1",
+      "effect": "E-stop wired as normally-open instead of normally-closed. The input reads FALSE (open) even when the E-stop is not pressed — breaking the start circuit.",
+      "clues": [
+        "I0.1 reads 0 on the PLC despite E-stop being out (not pressed)",
+        "Multimeter on E-stop terminals shows 0V with E-stop out — should be 24V",
+        "Wiring diagram shows I0.1 should be connected to NC contact, but field wiring is on NO terminal"
+      ],
+      "solution": "Move the field wire from the NO terminal to the NC terminal on the E-stop device at junction box JB-1.",
+      "active": true
+    }
+  ],
+  "redHerrings": [
+    {
+      "description": "The overload reset button on the MCC has a faded label and looks like it might have tripped",
+      "location": "Motor Control Centre, bucket 2",
+      "whyMisleading": "OVERLOAD_RESET (I0.2) reads TRUE — the overload relay is healthy. The label is just old. Pressing it does nothing."
+    }
+  ],
+  "derekScript": {
+    "initialCall": "Yeah it's Derek. Line 1 conveyor is down, we've got a full pallet backed up. I need this running in the next ten minutes or we're pulling from Line 2. What's the situation?",
+    "checkIn5min": "You still on it? It's been five minutes. I've got the shift supervisor breathing down my neck.",
+    "impatient10min": "Ten minutes. This is taking way too long. Did you check the E-stop circuit? Sometimes the sparky wires it wrong.",
+    "angry15min": "Fifteen minutes of downtime. That's coming out of someone's report. I'm coming down there.",
+    "resolution": "Alright, belt's moving. Write it up in the maintenance log — NC/NO swap on E-stop wiring. I'll have a word with whoever commissioned this panel."
+  },
+  "scoring": {
+    "parTime": 180,
+    "maxScore": 1000,
+    "penalties": {
+      "wrongDiagnosis": 200,
+      "unnecessaryPartOrder": 100,
+      "skipLOTO": 500,
+      "derekEscalation": 50
+    }
+  }
+}
