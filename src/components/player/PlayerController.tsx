@@ -100,8 +100,7 @@ export function PlayerController() {
 
   return (
     <>
-      {/* By passing a dummy selector, we prevent PointerLockControls from adding global click listeners that trigger on menu clicks */}
-      <PointerLockControls ref={controlsRef} onUnlock={handleUnlock} selector="#non-existent-element" />
+      <PointerLockControls ref={controlsRef} onUnlock={handleUnlock} />
       <RigidBody
         ref={rigidBodyRef}
         type="dynamic"

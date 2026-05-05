@@ -116,19 +116,22 @@ export function PauseMenu() {
         e.preventDefault()
         e.stopPropagation()
         
-        // If in settings, go back to main menu
         if (view === 'settings') {
+          // If in settings, go back to main menu
           setView('main')
+        } else {
+          // If in main menu, exit pause menu
+          setPaused(false)
+          // Note: We DO NOT requestPointerLock here because the browser natively
+          // blocks programmatic pointer locks triggered by the Escape key.
+          // The user will just be returned to the game and can click the screen
+          // anywhere to re-engage the pointer lock.
         }
-        // If in main menu, do nothing.
-        // We DO NOT allow ESC to resume the game because the browser natively
-        // intercepts ESC to release pointer lock, which instantly breaks any 
-        // programmatic attempt to re-engage the lock via the keyboard.
       }
     }
     document.addEventListener('keydown', onKeyDown, true) // capture phase
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [isPaused, view])
+  }, [isPaused, view, setPaused])
 
   const handleResume = useCallback(() => {
     setPaused(false)
