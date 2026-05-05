@@ -37,6 +37,7 @@ import {
 import { GameLoop } from '@/hooks/useGameLoop'
 import { useScenarioLoader } from '@/hooks/useScenarioLoader'
 import { useMenuAudio } from '@/hooks/useMenuAudio'
+import { useAmbientAudio } from '@/hooks/useAmbientAudio'
 
 // ─── Accelerated raycasting ──────────────────────────────────────────────────
 // three-mesh-bvh patches Three.js prototypes so ALL raycasts in the scene
@@ -186,6 +187,9 @@ export function GameCanvas() {
   // Menu theme audio — plays on start screen, fades out when game starts.
   // MUST be called before any conditional returns (React hooks rules).
   useMenuAudio(!started)
+
+  // Ambient factory hum — plays while game is running (and not paused)
+  useAmbientAudio(started)
 
   if (!gpuCaps) return <LoadingScreen />
 
