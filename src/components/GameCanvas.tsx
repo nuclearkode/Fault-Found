@@ -165,8 +165,6 @@ export function GameCanvas() {
   const setGpuTier = useSettingsStore(s => s.setGpuTier)
   const qualityOverride = useSettingsStore(s => s.qualityOverride)
   const isPaused = useSettingsStore(s => s.isPaused)
-  const needsClick = useSettingsStore(s => s.needsClick)
-  const setNeedsClick = useSettingsStore(s => s.setNeedsClick)
 
   useEffect(() => {
     const caps = detectGPU()
@@ -177,12 +175,9 @@ export function GameCanvas() {
 
   const handleStart = useCallback(() => {
     setStarted(true)
-    setNeedsClick(false)
-  }, [setNeedsClick])
-
-  const handleResume = useCallback(() => {
-    setNeedsClick(false)
-  }, [setNeedsClick])
+    // Request pointer lock directly when starting the game
+    document.querySelector('canvas')?.requestPointerLock()
+  }, [])
 
   // Menu theme audio — plays on start screen, fades out when game starts.
   // MUST be called before any conditional returns (React hooks rules).
@@ -197,7 +192,6 @@ export function GameCanvas() {
   const tier = qualityOverride === 'auto' ? gpuCaps.tier : qualityOverride
 
   const showStartOverlay = !started
-  const showResumeOverlay = started && !isPaused && needsClick
 
   // Capture gpuCaps in closure for the renderer factory
   const capturedCaps = gpuCaps
@@ -214,12 +208,6 @@ export function GameCanvas() {
           label="[ CLICK TO START ]"
           hint="WASD to move · Mouse to look · E to interact · ESC for settings"
           onStart={handleStart}
-        />
-      )}
-      {showResumeOverlay && (
-        <ClickOverlay
-          label="[ CLICK TO RESUME ]"
-          onStart={handleResume}
         />
       )}
 

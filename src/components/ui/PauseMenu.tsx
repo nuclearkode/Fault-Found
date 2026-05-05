@@ -118,19 +118,20 @@ export function PauseMenu() {
         escCooldown.current = true
         // Close the menu → show "click to resume" overlay
         setPaused(false)
-        setNeedsClick(true)
+        // Try to re-engage pointer lock immediately if ESC is pressed again to resume
+        document.querySelector('canvas')?.requestPointerLock()
         // Cooldown to ignore the duplicate ESC from pointer lock release
         setTimeout(() => { escCooldown.current = false }, 300)
       }
     }
     document.addEventListener('keydown', onKeyDown, true) // capture phase
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [isPaused, setPaused, setNeedsClick])
+  }, [isPaused, setPaused])
 
   const handleResume = useCallback(() => {
     setPaused(false)
-    setNeedsClick(true)
-  }, [setPaused, setNeedsClick])
+    document.querySelector('canvas')?.requestPointerLock()
+  }, [setPaused])
 
   const handleQuit = () => {
     window.location.reload()

@@ -68,14 +68,6 @@ export function PlayerController() {
     setPaused(true)
   }, [setPaused])
 
-  // When pause menu closes → show "click to resume" overlay
-  useEffect(() => {
-    if (!isPaused) {
-      // Can't auto-relock — browser requires user gesture
-      setNeedsClick(true)
-    }
-  }, [isPaused, setNeedsClick])
-
   // Movement — only when pointer is locked AND not paused
   useFrame(() => {
     if (!rigidBodyRef.current || isPaused || !controlsRef.current?.isLocked) return
