@@ -36,6 +36,7 @@ import {
 } from '@/components/factory/FactoryProps'
 import { GameLoop } from '@/hooks/useGameLoop'
 import { useScenarioLoader } from '@/hooks/useScenarioLoader'
+import { useMenuAudio } from '@/hooks/useMenuAudio'
 
 // ─── Accelerated raycasting ──────────────────────────────────────────────────
 // three-mesh-bvh patches Three.js prototypes so ALL raycasts in the scene
@@ -182,6 +183,10 @@ export function GameCanvas() {
     setNeedsClick(false)
   }, [setNeedsClick])
 
+  // Menu theme audio — plays on start screen, fades out when game starts.
+  // MUST be called before any conditional returns (React hooks rules).
+  useMenuAudio(!started)
+
   if (!gpuCaps) return <LoadingScreen />
 
   // Effective tier: pause-menu override takes priority over auto-detection
@@ -256,11 +261,11 @@ export function GameCanvas() {
               rotation={[0, Math.PI / 2, 0]}
             />
 
-            {/* ── SUPERVISOR OFFICE — south-east corner ─────────────────────
-                Elevated mezzanine with glass-fronted office, metal stairs,
-                and balcony railing overlooking the factory floor.
+            {/* ── SUPERVISOR OFFICE — south-east corner, flush against south wall ─
+                Elevated mezzanine with glass-fronted office, metal stairs
+                running sideways (west) along the wall. Back wall = factory wall.
                 Supervisor will burst out and run down stairs (trip hazard). */}
-            <SupervisorOffice position={[8, 0, 7]} />
+            <SupervisorOffice position={[6, 0, 8]} />
 
             {/* ── MPS STATIONS — all 10 Festo stations ─────────────────────
                 Positions defined in src/config/factoryLayout.ts.
