@@ -29,7 +29,7 @@
 
 import * as THREE from 'three'
 import { useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, ThreeElements } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import type { GLTF } from 'three-stdlib'
 import { useGameStore } from '@/stores/gameStore'
@@ -64,8 +64,8 @@ type GLTFResult = GLTF & {
 // Pre-allocated — never new inside useFrame
 const _beltOffset = new THREE.Vector2()
 
-export function AssemblyLine(props: JSX.IntrinsicElements['group']) {
-  const { nodes, materials } = useGLTF('/models/assembly_line.glb') as GLTFResult
+export function AssemblyLine(props: ThreeElements['group']) {
+  const { nodes, materials } = useGLTF('/models/assembly_line.glb') as unknown as GLTFResult
 
   // Belt mesh ref — animated when Q0.0 (motor run) is true
   const beltRef = useRef<THREE.Mesh>(null)
