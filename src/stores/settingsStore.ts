@@ -39,6 +39,7 @@ interface SettingsState {
   // --- Game State ---
   started: boolean
   setStarted: (v: boolean) => void
+  requestPointerLock: () => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -78,5 +79,8 @@ export const useSettingsStore = create<SettingsState>()(
 
     started: false,
     setStarted: (v) => set({ started: v }),
+    requestPointerLock: () => {
+      console.warn('[FAULT//FOUND] requestPointerLock called before controller mounted')
+    },
   }))
 )

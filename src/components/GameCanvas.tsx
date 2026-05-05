@@ -177,10 +177,7 @@ export function GameCanvas() {
   const handleStart = useCallback(() => {
     setStarted(true)
     // Request pointer lock directly when starting the game
-    // Small timeout ensures React has processed the state change
-    setTimeout(() => {
-      document.querySelector('canvas')?.requestPointerLock()
-    }, 10)
+    useSettingsStore.getState().requestPointerLock()
   }, [setStarted])
 
   // Menu theme audio — plays on start screen, fades out when game starts.

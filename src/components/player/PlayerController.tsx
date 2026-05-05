@@ -43,6 +43,21 @@ export function PlayerController() {
   const setPaused = useSettingsStore(s => s.setPaused)
   const started = useSettingsStore(s => s.started)
 
+  // Register the pointer lock function in the global store so UI can trigger it
+  useEffect(() => {
+    useSettingsStore.setState({
+      requestPointerLock: () => {
+        try {
+          if (controlsRef.current) {
+            controlsRef.current.lock()
+          }
+        } catch (err) {
+          console.warn('[FAULT//FOUND] Failed to acquire pointer lock:', err)
+        }
+      }
+    })
+  }, [])
+
   // Key handlers — update module-level object, not React state (no re-render)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
