@@ -15,6 +15,7 @@
     "@react-three/fiber": "^9.6.1",
     "@react-three/rapier": "^2.2.0",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
     "howler": "^2.2.4",
     "next": "16.2.4",
     "react": "19.2.4",
