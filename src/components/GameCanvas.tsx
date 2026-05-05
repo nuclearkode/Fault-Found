@@ -161,7 +161,8 @@ function createRenderer(
 
 export function GameCanvas() {
   const [gpuCaps, setGpuCaps] = useState<GPUCaps | null>(null)
-  const [started, setStarted] = useState(false)
+  const started = useSettingsStore(s => s.started)
+  const setStarted = useSettingsStore(s => s.setStarted)
   const setGpuTier = useSettingsStore(s => s.setGpuTier)
   const qualityOverride = useSettingsStore(s => s.qualityOverride)
   const isPaused = useSettingsStore(s => s.isPaused)
@@ -176,8 +177,11 @@ export function GameCanvas() {
   const handleStart = useCallback(() => {
     setStarted(true)
     // Request pointer lock directly when starting the game
-    document.querySelector('canvas')?.requestPointerLock()
-  }, [])
+    // Small timeout ensures React has processed the state change
+    setTimeout(() => {
+      document.querySelector('canvas')?.requestPointerLock()
+    }, 10)
+  }, [setStarted])
 
   // Menu theme audio — plays on start screen, fades out when game starts.
   // MUST be called before any conditional returns (React hooks rules).
@@ -274,7 +278,7 @@ export function GameCanvas() {
             <CeilingPipes />
             <CableTray position={[5, 4.2, 0]} />
             <CableTray position={[-5, 4.2, 0]} />
-            {started && <PlayerController />}
+            <PlayerController />
           </Physics>
         </Suspense>
       </Canvas>

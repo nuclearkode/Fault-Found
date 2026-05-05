@@ -35,6 +35,10 @@ interface SettingsState {
   togglePause: () => void
   needsClick: boolean
   setNeedsClick: (v: boolean) => void
+
+  // --- Game State ---
+  started: boolean
+  setStarted: (v: boolean) => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -71,5 +75,8 @@ export const useSettingsStore = create<SettingsState>()(
     togglePause: () => set((s) => ({ isPaused: !s.isPaused })),
     needsClick: false,
     setNeedsClick: (v) => set({ needsClick: v }),
+
+    started: false,
+    setStarted: (v) => set({ started: v }),
   }))
 )

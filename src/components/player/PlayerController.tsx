@@ -41,7 +41,7 @@ export function PlayerController() {
   const { camera } = useThree()
   const isPaused = useSettingsStore(s => s.isPaused)
   const setPaused = useSettingsStore(s => s.setPaused)
-  const setNeedsClick = useSettingsStore(s => s.setNeedsClick)
+  const started = useSettingsStore(s => s.started)
 
   // Key handlers — update module-level object, not React state (no re-render)
   useEffect(() => {
@@ -68,9 +68,9 @@ export function PlayerController() {
     setPaused(true)
   }, [setPaused])
 
-  // Movement — only when pointer is locked AND not paused
+  // Movement — only when pointer is locked AND not paused AND game has started
   useFrame(() => {
-    if (!rigidBodyRef.current || isPaused || !controlsRef.current?.isLocked) return
+    if (!started || !rigidBodyRef.current || isPaused || !controlsRef.current?.isLocked) return
     const body = rigidBodyRef.current
     const vel = body.linvel()
 
@@ -85,7 +85,8 @@ export function PlayerController() {
 
   return (
     <>
-      <PointerLockControls ref={controlsRef} onUnlock={handleUnlock} />
+      {/* By passing a dummy selector, we prevent PointerLockControls from adding global click listeners that trigger on menu clicks */}
+      <PointerLockControls ref={controlsRef} onUnlock={handleUnlock} selector="#non-existent-element" />
       <RigidBody
         ref={rigidBodyRef}
         type="dynamic"
