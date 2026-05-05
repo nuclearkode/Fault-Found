@@ -10,7 +10,7 @@
 import { useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 
-const AMBIENT_URL = '/audio/ambient_hum.wav'
+const AMBIENT_URL = '/audio/ambient_hum.mp3'
 
 export function useAmbientAudio(started: boolean) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
