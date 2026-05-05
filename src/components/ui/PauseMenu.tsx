@@ -112,21 +112,23 @@ export function PauseMenu() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Escape' && isPaused && !escCooldown.current) {
+      if (e.code === 'Escape' && isPaused) {
         e.preventDefault()
         e.stopPropagation()
-        escCooldown.current = true
-        // Close the menu → show "click to resume" overlay
-        setPaused(false)
-        // Try to re-engage pointer lock immediately if ESC is pressed again to resume
-        useSettingsStore.getState().requestPointerLock()
-        // Cooldown to ignore the duplicate ESC from pointer lock release
-        setTimeout(() => { escCooldown.current = false }, 300)
+        
+        // If in settings, go back to main menu
+        if (view === 'settings') {
+          setView('main')
+        }
+        // If in main menu, do nothing.
+        // We DO NOT allow ESC to resume the game because the browser natively
+        // intercepts ESC to release pointer lock, which instantly breaks any 
+        // programmatic attempt to re-engage the lock via the keyboard.
       }
     }
     document.addEventListener('keydown', onKeyDown, true) // capture phase
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [isPaused, setPaused])
+  }, [isPaused, view])
 
   const handleResume = useCallback(() => {
     setPaused(false)
