@@ -1,33 +1,37 @@
 'use client'
 
 /**
- * SortingStation — Belt + 3 deflector gates + sensor bridge + 3 bins.
- * Scaled to real Festo proportions on 700×700mm plate.
+ * SortingStation — High-fidelity replica of Festo MPS Sorting Station.
+ * Features: Conveyor, Entry Stopper, Overhanging Sensor Block,
+ * 3 Deflector Cylinders, 3 Zig-Zag Chutes, Air Service Unit, I/O Terminal.
  */
 
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { StationBase } from './StationBase'
+import { OpticalSensor, InductiveSensor } from '../hardware/Sensors'
+import { ShortStrokeCylinder, ConveyorMotor, SolenoidValve } from '../hardware/Actuators'
 
 const MAT = {
   profile: new THREE.MeshStandardMaterial({ color: '#c8ccd0', roughness: 0.3, metalness: 0.7 }),
   belt: new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.9, metalness: 0.05 }),
-  gate: new THREE.MeshStandardMaterial({ color: '#3a7bc8', roughness: 0.3, metalness: 0.6 }),
-  chute: new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.5, metalness: 0.5 }),
-  sensor: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.5, metalness: 0.4 }),
-  mount: new THREE.MeshStandardMaterial({ color: '#888', roughness: 0.4, metalness: 0.6 }),
-  bin: new THREE.MeshStandardMaterial({ color: '#4a5568', roughness: 0.5, metalness: 0.3 }),
-  valve: new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.35, metalness: 0.5 }),
+  gateFlap: new THREE.MeshStandardMaterial({ color: '#d0d0d0', roughness: 0.4, metalness: 0.8 }),
+  chute: new THREE.MeshStandardMaterial({ color: '#a0aab0', roughness: 0.4, metalness: 0.6 }),
+  mount: new THREE.MeshStandardMaterial({ color: '#555e6b', roughness: 0.5, metalness: 0.6 }),
+  regulatorBlue: new THREE.MeshStandardMaterial({ color: '#0055a4', roughness: 0.3, metalness: 0.2 }),
+  gaugeWhite: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.8 }),
+  ioBlock: new THREE.MeshStandardMaterial({ color: '#f0f0f0', roughness: 0.2, metalness: 0.1 }),
 } as const
 
 interface Props { stationId: string; label: string }
 
 export function SortingStation({ stationId, label }: Props) {
-  const gate1Ref = useRef<THREE.Mesh>(null)
-  const gate2Ref = useRef<THREE.Mesh>(null)
-  const gate3Ref = useRef<THREE.Mesh>(null)
+  const gate1Ref = useRef<THREE.Group>(null)
+  const gate2Ref = useRef<THREE.Group>(null)
+  const gate3Ref = useRef<THREE.Group>(null)
 
+  // Temporary animation logic (until linked to physics/Zustand)
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
     const cycle = t % 6
@@ -37,77 +41,152 @@ export function SortingStation({ stationId, label }: Props) {
       if (!ref.current) return
       const gateStart = i * 2
       const open = cycle > gateStart && cycle < gateStart + 1
-      ref.current.rotation.y = open ? Math.PI * 0.35 : 0
+      // Flap swings across the belt
+      ref.current.rotation.y = open ? Math.PI * 0.25 : 0
     })
   })
 
   return (
     <StationBase stationId={stationId} label={label}>
-      {/* Main belt conveyor */}
-      <mesh position={[0, 0.015, 0]} material={MAT.belt} receiveShadow>
-        <boxGeometry args={[0.55, 0.015, 0.1]} />
-      </mesh>
-      {([-1, 1] as const).map(s => (
-        <mesh key={s} position={[0, 0.03, s * 0.055]} material={MAT.profile}>
-          <boxGeometry args={[0.55, 0.025, 0.008]} />
+      
+      {/* ─── 1. CONVEYOR BELT & MOTOR ───────────────────────────────────── */}
+      <group position={[0, 0, 0]}>
+        {/* Belt */}
+        <mesh position={[0, 0.015, 0]} material={MAT.belt} receiveShadow>
+          <boxGeometry args={[0.7, 0.005, 0.04]} />
         </mesh>
-      ))}
-      {/* Belt rollers */}
-      {([-1, 1] as const).map(s => (
-        <mesh key={`r${s}`} position={[s * 0.27, 0.015, 0]} rotation={[0, 0, Math.PI / 2]} material={MAT.mount}>
-          <cylinderGeometry args={[0.015, 0.015, 0.1, 8]} />
-        </mesh>
-      ))}
-
-      {/* Sensor bridge (tall arch) */}
-      <group position={[-0.2, 0, 0]}>
+        {/* Aluminium guide rails */}
         {([-1, 1] as const).map(s => (
-          <mesh key={s} position={[0, 0.1, s * 0.07]} material={MAT.sensor} castShadow>
-            <boxGeometry args={[0.02, 0.2, 0.02]} />
+          <mesh key={s} position={[0, 0.02, s * 0.025]} material={MAT.profile} castShadow>
+            <boxGeometry args={[0.7, 0.015, 0.005]} />
           </mesh>
         ))}
-        <mesh position={[0, 0.2, 0]} material={MAT.sensor}>
-          <boxGeometry args={[0.02, 0.02, 0.16]} />
-        </mesh>
-        {/* Sensor heads (optical + inductive + colour) */}
-        <mesh position={[0, 0.14, 0.07]} material={MAT.sensor}>
-          <boxGeometry args={[0.025, 0.02, 0.015]} />
-        </mesh>
-        <mesh position={[0, 0.08, 0.07]} material={MAT.valve}>
-          <cylinderGeometry args={[0.008, 0.008, 0.02, 8]} />
+        {/* Motor at the right end (+0.35) */}
+        <ConveyorMotor id={`${stationId}_M1`} position={[0.35, 0.015, 0.04]} />
+        {/* Idler roller at left end (-0.35) */}
+        <mesh position={[-0.35, 0.015, 0]} rotation={[Math.PI / 2, 0, 0]} material={MAT.mount}>
+          <cylinderGeometry args={[0.015, 0.015, 0.04, 12]} />
         </mesh>
       </group>
 
-      {/* 3 Deflector gates + chutes + bins */}
+      {/* ─── 2. START MODULE (Stopper & Entry Sensor) ───────────────────── */}
+      <group position={[-0.3, 0, 0]}>
+        {/* Stopper Cylinder (blocks the belt) */}
+        <ShortStrokeCylinder id={`${stationId}_Y1`} position={[0, 0.015, 0.035]} rotation={[0, -Math.PI / 2, 0]} />
+        {/* Entry Sensor Bracket */}
+        <mesh position={[-0.03, 0.05, -0.04]} material={MAT.mount} castShadow>
+          <boxGeometry args={[0.01, 0.1, 0.01]} />
+        </mesh>
+        <OpticalSensor id={`${stationId}_B1`} position={[-0.03, 0.08, -0.03]} rotation={[0, 0, 0]} />
+      </group>
+
+      {/* ─── 3. OVERHANGING SENSOR BLOCK ────────────────────────────────── */}
+      <group position={[-0.15, 0, -0.06]}>
+        {/* Vertical post */}
+        <mesh position={[0, 0.06, 0]} material={MAT.profile} castShadow>
+          <boxGeometry args={[0.02, 0.12, 0.02]} />
+        </mesh>
+        {/* Horizontal overhang arm */}
+        <mesh position={[0, 0.11, 0.04]} material={MAT.profile} castShadow>
+          <boxGeometry args={[0.02, 0.02, 0.08]} />
+        </mesh>
+        {/* Sensor mounts */}
+        <mesh position={[0, 0.08, 0.06]} material={MAT.mount}>
+          <boxGeometry args={[0.04, 0.06, 0.03]} />
+        </mesh>
+        {/* Sensors looking down at the belt */}
+        <OpticalSensor id={`${stationId}_B2`} position={[-0.01, 0.06, 0.06]} rotation={[Math.PI / 2, 0, 0]} />
+        <InductiveSensor id={`${stationId}_B3`} position={[0.01, 0.06, 0.06]} rotation={[Math.PI / 2, 0, 0]} />
+      </group>
+
+      {/* ─── 4. DEFLECTORS & CHUTES ─────────────────────────────────────── */}
       {[
-        { x: -0.08, ref: gate1Ref },
-        { x: 0.08, ref: gate2Ref },
-        { x: 0.22, ref: gate3Ref },
-      ].map(({ x, ref }, i) => (
-        <group key={i} position={[x, 0.03, 0.055]}>
-          {/* Gate cylinder mount */}
-          <mesh position={[0, 0.02, 0.02]} material={MAT.mount}>
-            <boxGeometry args={[0.025, 0.015, 0.025]} />
-          </mesh>
-          {/* Gate flap */}
-          <mesh ref={ref} name={`${stationId}_gate_${i}`} material={MAT.gate}>
-            <boxGeometry args={[0.008, 0.04, 0.06]} />
-          </mesh>
-          {/* Chute (angled slide) */}
-          <mesh position={[0, -0.03, 0.1]} rotation={[0.4, 0, 0]} material={MAT.chute}>
-            <boxGeometry args={[0.06, 0.006, 0.12]} />
-          </mesh>
-          {/* Collection bin */}
-          <mesh position={[0, -0.06, 0.18]} material={MAT.bin}>
-            <boxGeometry args={[0.08, 0.1, 0.06]} />
-          </mesh>
+        { x: -0.05, ref: gate1Ref, id: `${stationId}_Y2` },
+        { x: 0.1, ref: gate2Ref, id: `${stationId}_Y3` },
+        { x: 0.25, ref: gate3Ref, id: `${stationId}_Y4` },
+      ].map(({ x, ref, id }, i) => (
+        <group key={i} position={[x, 0, 0.035]}>
+          
+          {/* Deflector Cylinder (pushing flap) */}
+          <ShortStrokeCylinder id={id} position={[0, 0.025, 0.02]} rotation={[0, -Math.PI / 2, 0]} />
+          
+          {/* Swinging Flap (pushed by cylinder across the belt) */}
+          <group ref={ref} position={[-0.015, 0.025, -0.01]}>
+            <mesh position={[-0.03, 0, 0]} material={MAT.gateFlap} castShadow>
+              <boxGeometry args={[0.06, 0.015, 0.005]} />
+            </mesh>
+          </group>
+
+          {/* Zig-Zag Slide Chute (aluminium extrusions) */}
+          <group position={[0, -0.02, 0.12]}>
+            {/* Top ramp (steep) */}
+            <mesh position={[0, 0, -0.03]} rotation={[0.4, 0, 0]} material={MAT.chute} castShadow>
+              <boxGeometry args={[0.04, 0.005, 0.1]} />
+            </mesh>
+            {/* Middle catch (flat) */}
+            <mesh position={[0, -0.02, 0.02]} rotation={[0, 0, 0]} material={MAT.chute} castShadow>
+              <boxGeometry args={[0.04, 0.005, 0.02]} />
+            </mesh>
+            {/* Lower ramp (shallow) */}
+            <mesh position={[0, -0.03, 0.08]} rotation={[0.2, 0, 0]} material={MAT.chute} castShadow>
+              <boxGeometry args={[0.04, 0.005, 0.1]} />
+            </mesh>
+            {/* End stop */}
+            <mesh position={[0, -0.03, 0.13]} rotation={[Math.PI / 2, 0, 0]} material={MAT.chute} castShadow>
+              <boxGeometry args={[0.04, 0.005, 0.02]} />
+            </mesh>
+          </group>
+
         </group>
       ))}
 
-      {/* Valve terminal */}
-      <mesh position={[0.22, 0.02, -0.22]} material={MAT.valve}>
-        <boxGeometry args={[0.06, 0.04, 0.08]} />
-      </mesh>
+      {/* ─── 5. AIR SERVICE UNIT (Pressure Regulator) ───────────────────── */}
+      <group position={[-0.25, 0, -0.15]}>
+        {/* Mounting post */}
+        <mesh position={[0, 0.05, 0]} material={MAT.profile}>
+          <boxGeometry args={[0.015, 0.1, 0.015]} />
+        </mesh>
+        {/* Regulator body */}
+        <mesh position={[0, 0.1, 0]} material={MAT.mount}>
+          <boxGeometry args={[0.03, 0.04, 0.03]} />
+        </mesh>
+        {/* Blue adjustment knob */}
+        <mesh position={[0, 0.125, 0]} material={MAT.regulatorBlue}>
+          <cylinderGeometry args={[0.01, 0.01, 0.015, 12]} />
+        </mesh>
+        {/* Pressure Gauge Dial */}
+        <group position={[0, 0.1, 0.016]}>
+          <mesh rotation={[Math.PI / 2, 0, 0]} material={MAT.gaugeWhite}>
+            <cylinderGeometry args={[0.012, 0.012, 0.002, 16]} />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]} material={MAT.mount}>
+            <cylinderGeometry args={[0.014, 0.014, 0.001, 16]} />
+          </mesh>
+        </group>
+      </group>
+
+      {/* ─── 6. FESTO I/O TERMINAL BLOCK ────────────────────────────────── */}
+      <group position={[0.15, 0.02, -0.15]}>
+        {/* White SysLink block */}
+        <mesh material={MAT.ioBlock} castShadow>
+          <boxGeometry args={[0.1, 0.04, 0.06]} />
+        </mesh>
+        {/* Grey cable connectors */}
+        {[-0.03, 0.03].map(x => (
+          <mesh key={x} position={[x, 0.025, 0]} material={MAT.mount}>
+            <boxGeometry args={[0.02, 0.01, 0.04]} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* ─── 7. VALVE SLICE (Solenoids for the cylinders) ───────────────── */}
+      <group position={[-0.05, 0.02, -0.15]}>
+        {/* 4 Solenoid valves ganged together */}
+        {[-0.03, -0.01, 0.01, 0.03].map((x, i) => (
+          <SolenoidValve key={i} id={`${stationId}_V${i+1}`} position={[x, 0, 0]} />
+        ))}
+      </group>
+
     </StationBase>
   )
 }

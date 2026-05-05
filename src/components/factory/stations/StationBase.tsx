@@ -198,18 +198,23 @@ export function StationBase({ stationId, children }: StationBaseProps) {
           <boxGeometry args={[0.17, 0.11, 0.002]} />
         </mesh>
 
-        {/* E-stop button (left of screen) */}
-        <group name={`${stationId}_estop`} position={[-0.16, 0.02, 0.005]}>
+        {/* Button Mounting Bracket */}
+        <mesh position={[-0.16, -0.01, 0.015]} material={MAT.cabinet} castShadow>
+          <boxGeometry args={[0.1, 0.1, 0.03]} />
+        </mesh>
+
+        {/* E-stop button (top left of bracket) */}
+        <group name={`${stationId}_estop`} position={[-0.16, 0.015, 0.03]} rotation={[Math.PI / 2, 0, 0]}>
           <mesh material={MAT.estopBase}>
-            <cylinderGeometry args={[0.025, 0.025, 0.012, 12]} />
+            <cylinderGeometry args={[0.022, 0.022, 0.012, 12]} />
           </mesh>
-          <mesh position={[0, 0.012, 0]} material={MAT.estop}>
-            <cylinderGeometry args={[0.02, 0.022, 0.015, 12]} />
+          <mesh position={[0, -0.012, 0]} material={MAT.estop}>
+            <cylinderGeometry args={[0.018, 0.02, 0.015, 12]} />
           </mesh>
         </group>
 
-        {/* Start button (right of E-stop) */}
-        <mesh name={`${stationId}_start`} position={[-0.16, -0.04, 0.012]} material={MAT.startBtn}>
+        {/* Start button (bottom left of bracket) */}
+        <mesh name={`${stationId}_start`} position={[-0.16, -0.035, 0.03]} rotation={[Math.PI / 2, 0, 0]} material={MAT.startBtn}>
           <cylinderGeometry args={[0.015, 0.015, 0.012, 10]} />
         </mesh>
 

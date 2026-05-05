@@ -46,7 +46,7 @@ export const DEFAULT_LAYOUT: StationPlacement[] = [
   { type: 'packaging',        position: [3.25,  0, -4], rotation: 0,   id: 'ST70', label: 'Packaging' },
   { type: 'storage',          position: [4.55,  0, -4], rotation: 0,   id: 'ST80', label: 'Storage' },
 
-  // ── Standalone advanced stations (south area, facing north) ───────────────
-  { type: 'distributing_pro', position: [-2.5,  0, 3],  rotation: 180, id: 'ST90', label: 'Distributing Pro' },
-  { type: 'assembly_robot',   position: [2.5,   0, 3],  rotation: 180, id: 'ST100', label: 'Assembly Robot' },
+  // ── Experimental Stations (West wall, facing east into the room) ──────────
+  { type: 'distributing_pro', position: [-13.5, 0, 3], rotation: 90, id: 'ST90', label: 'Distributing Pro (Exp)' },
+  { type: 'assembly_robot',   position: [-13.5, 0, 6], rotation: 90, id: 'ST100', label: 'Assembly Robot (Exp)' },
 ]
