@@ -3,12 +3,16 @@
 /**
  * PauseMenu — ESC-accessible settings overlay.
  *
- * Two-column layout: Graphics + Controls on left, Audio + Actions on right.
+ * Two views:
+ *   - Main: "Resume", "Settings", "Quit"
+ *   - Settings: Graphics + Controls + Audio sliders
+ *
  * Non-scrollable — all content fits in viewport.
  * Styled with the FAULT//FOUND brand (red // slashes).
+ * Has a backdrop that strictly blocks all pointer events from reaching the game.
  */
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 interface SliderProps {
@@ -93,9 +97,18 @@ export function PauseMenu() {
   const qualityOverride = useSettingsStore(s => s.qualityOverride)
   const setQualityOverride = useSettingsStore(s => s.setQualityOverride)
 
+  const [view, setView] = useState<'main' | 'settings'>('main')
+
   // Debounce ESC — browser fires ESC for pointer lock release,
   // then our handler fires again. Guard with a cooldown ref.
   const escCooldown = useRef(false)
+
+  // Reset to main view when menu opens
+  useEffect(() => {
+    if (isPaused) {
+      setView('main')
+    }
+  }, [isPaused])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -119,6 +132,10 @@ export function PauseMenu() {
     setNeedsClick(true)
   }, [setPaused, setNeedsClick])
 
+  const handleQuit = () => {
+    window.location.reload()
+  }
+
   if (!isPaused) return null
 
   return (
@@ -126,8 +143,10 @@ export function PauseMenu() {
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(10, 10, 14, 0.8)',
-        backdropFilter: 'blur(10px)',
+        background: 'rgba(5, 5, 8, 0.85)',
+        backdropFilter: 'blur(8px)',
+        // Force block all mouse events from passing through to the canvas
+        pointerEvents: 'auto',
       }}
       // CRITICAL: Stop ALL pointer events from reaching the canvas behind.
       // Without this, clicking sliders causes PointerLockControls to re-lock.
@@ -136,7 +155,8 @@ export function PauseMenu() {
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div style={{
-        width: '680px',
+        width: view === 'main' ? '400px' : '680px',
+        transition: 'width 0.2s ease',
         background: 'linear-gradient(180deg, #16181e 0%, #1a1c24 100%)',
         border: '1px solid rgba(230, 57, 70, 0.15)',
         borderRadius: '8px',
@@ -148,7 +168,7 @@ export function PauseMenu() {
         {/* Header with logo */}
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: '1rem', paddingBottom: '0.8rem',
+          marginBottom: '1.5rem', paddingBottom: '0.8rem',
           borderBottom: '1px solid rgba(230, 57, 70, 0.1)',
         }}>
           <div style={{
@@ -160,141 +180,142 @@ export function PauseMenu() {
             <span style={{ color: '#e63946' }}>//</span>
             <span style={{ color: '#e8e4e0' }}>FOUND</span>
           </div>
-          <div style={{
-            fontSize: '0.6rem', opacity: 0.35,
-            fontFamily: '"JetBrains Mono", monospace',
-            letterSpacing: '0.1em',
-          }}>
-            ESC TO RESUME
-          </div>
+          {view === 'settings' ? (
+            <button
+              onClick={() => setView('main')}
+              style={{
+                background: 'rgba(230, 57, 70, 0.1)', border: '1px solid rgba(230, 57, 70, 0.3)',
+                color: '#e63946', fontSize: '0.7rem', padding: '0.3rem 0.6rem',
+                borderRadius: '4px', cursor: 'pointer', fontFamily: '"JetBrains Mono", monospace',
+                fontWeight: 600, letterSpacing: '0.05em'
+              }}
+            >
+              BACK
+            </button>
+          ) : (
+            <div style={{
+              fontSize: '0.6rem', opacity: 0.35,
+              fontFamily: '"JetBrains Mono", monospace',
+              letterSpacing: '0.1em',
+            }}>
+              ESC TO RESUME
+            </div>
+          )}
         </div>
 
-        {/* Two-column layout */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '1.5rem',
-        }}>
-          {/* ═══ LEFT COLUMN: Graphics + Controls ═══ */}
-          <div>
-            <SectionTitle>⚡ Graphics</SectionTitle>
+        {view === 'main' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <button
+              onClick={handleResume}
+              style={{
+                background: '#e63946', color: '#fff', border: 'none', padding: '0.9rem',
+                fontSize: '0.9rem', fontWeight: 600, letterSpacing: '0.1em', borderRadius: '4px',
+                cursor: 'pointer', fontFamily: '"JetBrains Mono", monospace',
+                textTransform: 'uppercase', width: '100%',
+                boxShadow: '0 4px 14px rgba(230, 57, 70, 0.2)'
+              }}
+            >
+              Resume Game
+            </button>
+            <button
+              onClick={() => setView('settings')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.03)', color: '#d0d4dc', border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '0.9rem', fontSize: '0.85rem', fontWeight: 500, letterSpacing: '0.1em', borderRadius: '4px',
+                cursor: 'pointer', fontFamily: '"JetBrains Mono", monospace',
+                textTransform: 'uppercase', width: '100%'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              Settings
+            </button>
+            <button
+              onClick={handleQuit}
+              style={{
+                background: 'rgba(0, 0, 0, 0.3)', color: '#8890a0', border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.9rem', fontSize: '0.85rem', fontWeight: 500, letterSpacing: '0.1em', borderRadius: '4px',
+                cursor: 'pointer', fontFamily: '"JetBrains Mono", monospace',
+                textTransform: 'uppercase', width: '100%', marginTop: '0.5rem'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(230, 57, 70, 0.15)'
+                e.currentTarget.style.color = '#e63946'
+                e.currentTarget.style.borderColor = 'rgba(230, 57, 70, 0.3)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)'
+                e.currentTarget.style.color = '#8890a0'
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)'
+              }}
+            >
+              Quit to Main Menu
+            </button>
+          </div>
+        )}
 
-            <div style={{ marginBottom: '0.8rem' }}>
-              <div style={{ fontSize: '0.75rem', color: '#b0b8c4', marginBottom: '0.35rem' }}>Quality Preset</div>
-              <div style={{ display: 'flex', gap: '0.35rem' }}>
-                {(['auto', 'low', 'medium', 'high'] as const).map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => setQualityOverride(q)}
-                    style={{
-                      flex: 1,
-                      padding: '0.35rem 0',
-                      background: qualityOverride === q ? 'rgba(230, 57, 70, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                      border: qualityOverride === q ? '1px solid #e63946' : '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '4px',
-                      color: qualityOverride === q ? '#e63946' : '#8890a0',
-                      fontSize: '0.7rem',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      textTransform: 'uppercase' as const,
-                      fontFamily: '"JetBrains Mono", monospace',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
+        {view === 'settings' && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '1.5rem',
+          }}>
+            {/* ═══ LEFT COLUMN: Graphics + Controls ═══ */}
+            <div>
+              <SectionTitle>⚡ Graphics</SectionTitle>
+
+              <div style={{ marginBottom: '0.8rem' }}>
+                <div style={{ fontSize: '0.75rem', color: '#b0b8c4', marginBottom: '0.35rem' }}>Quality Preset</div>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  {(['auto', 'low', 'medium', 'high'] as const).map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => setQualityOverride(q)}
+                      style={{
+                        flex: 1,
+                        padding: '0.35rem 0',
+                        background: qualityOverride === q ? 'rgba(230, 57, 70, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                        border: qualityOverride === q ? '1px solid #e63946' : '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '4px',
+                        color: qualityOverride === q ? '#e63946' : '#8890a0',
+                        fontSize: '0.7rem',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        textTransform: 'uppercase' as const,
+                        fontFamily: '"JetBrains Mono", monospace',
+                      }}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Slider
+                label="Environment Brightness" value={brightness} min={0.5} max={1.5} step={0.1} onChange={setBrightness}
+              />
+              <Slider
+                label="Atmospheric Density" value={fogDensity} min={0.01} max={0.08} step={0.01} onChange={setFogDensity}
+              />
+
+              <div style={{ marginTop: '1.5rem' }}>
+                <SectionTitle>⌨️ Controls</SectionTitle>
+                <Slider
+                  label="Mouse Sensitivity" value={mouseSensitivity} min={0.1} max={2.0} step={0.1} onChange={setMouseSensitivity} displayValue={`${(mouseSensitivity * 100).toFixed(0)}%`}
+                />
               </div>
             </div>
 
-            <Slider
-              label="Brightness"
-              value={brightness}
-              min={0.3} max={2.0} step={0.05}
-              onChange={setBrightness}
-              displayValue={`${Math.round(brightness * 100)}%`}
-            />
-            <Slider
-              label="Fog / Atmosphere"
-              value={fogDensity}
-              min={0} max={1} step={0.05}
-              onChange={setFogDensity}
-              displayValue={`${Math.round(fogDensity * 100)}%`}
-            />
-
-            <SectionTitle>🎯 Controls</SectionTitle>
-
-            <Slider
-              label="Mouse Sensitivity"
-              value={mouseSensitivity}
-              min={0.0005} max={0.005} step={0.0001}
-              onChange={setMouseSensitivity}
-              displayValue={`${(mouseSensitivity * 1000).toFixed(1)}`}
-            />
+            {/* ═══ RIGHT COLUMN: Audio + Actions ═══ */}
+            <div>
+              <SectionTitle>🔊 Audio</SectionTitle>
+              <Slider label="Master Volume" value={masterVolume} min={0} max={1} step={0.05} onChange={setMasterVolume} displayValue={`${(masterVolume * 100).toFixed(0)}%`} />
+              <Slider label="Sound Effects" value={sfxVolume} min={0} max={1} step={0.05} onChange={setSfxVolume} displayValue={`${(sfxVolume * 100).toFixed(0)}%`} />
+              <Slider label="Voice Communications" value={voiceVolume} min={0} max={1} step={0.05} onChange={setVoiceVolume} displayValue={`${(voiceVolume * 100).toFixed(0)}%`} />
+              <Slider label="Music" value={musicVolume} min={0} max={1} step={0.05} onChange={setMusicVolume} displayValue={`${(musicVolume * 100).toFixed(0)}%`} />
+            </div>
           </div>
-
-          {/* ═══ RIGHT COLUMN: Audio + Actions ═══ */}
-          <div>
-            <SectionTitle>🔊 Audio</SectionTitle>
-
-            <Slider
-              label="Master Volume"
-              value={masterVolume}
-              min={0} max={1} step={0.05}
-              onChange={setMasterVolume}
-              displayValue={`${Math.round(masterVolume * 100)}%`}
-            />
-            <Slider
-              label="SFX"
-              value={sfxVolume}
-              min={0} max={1} step={0.05}
-              onChange={setSfxVolume}
-              displayValue={`${Math.round(sfxVolume * 100)}%`}
-            />
-            <Slider
-              label="Voice (Derek)"
-              value={voiceVolume}
-              min={0} max={1} step={0.05}
-              onChange={setVoiceVolume}
-              displayValue={`${Math.round(voiceVolume * 100)}%`}
-            />
-            <Slider
-              label="Music / Ambience"
-              value={musicVolume}
-              min={0} max={1} step={0.05}
-              onChange={setMusicVolume}
-              displayValue={`${Math.round(musicVolume * 100)}%`}
-            />
-          </div>
-        </div>
-
-        {/* Resume button — spans full width */}
-        <button
-          onClick={handleResume}
-          style={{
-            width: '100%',
-            marginTop: '1.2rem',
-            padding: '0.65rem',
-            background: 'linear-gradient(135deg, rgba(230, 57, 70, 0.15), rgba(230, 57, 70, 0.05))',
-            border: '1px solid rgba(230, 57, 70, 0.35)',
-            borderRadius: '6px',
-            color: '#e63946',
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            fontFamily: '"JetBrains Mono", monospace',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            letterSpacing: '0.1em',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(230, 57, 70, 0.25), rgba(230, 57, 70, 0.1))'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(230, 57, 70, 0.15), rgba(230, 57, 70, 0.05))'
-          }}
-        >
-          [ RESUME ]
-        </button>
+        )}
       </div>
     </div>
   )
