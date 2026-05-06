@@ -20,20 +20,11 @@ import { Physics } from '@react-three/rapier'
 import { detectGPU, type GPUCaps } from '@/utils/gpuCapabilities'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { PlayerController } from '@/components/player/PlayerController'
-import { FactoryFloor } from '@/components/factory/FactoryFloor'
-import { PLCPanel } from '@/components/factory/PLCPanel'
 import { StationRenderer } from '@/components/factory/stations/StationRenderer'
 import { Lighting } from '@/components/factory/Lighting'
-import { BreakerPanel } from '@/components/factory/BreakerPanel'
-import { SupervisorOffice } from '@/components/factory/SupervisorOffice'
+import { BlenderEnvironment } from '@/components/factory/BlenderEnvironment'
 import { DemoWorkpieces } from '@/components/factory/Workpiece'
-import {
-  Workbench,
-  IndustrialShelving,
-  CeilingPipes,
-  CableTray,
-  MotorControlCenter,
-} from '@/components/factory/FactoryProps'
+import { BlenderLine } from '@/components/factory/BlenderLine'
 import { GameLoop } from '@/hooks/useGameLoop'
 import { useScenarioLoader } from '@/hooks/useScenarioLoader'
 import { useMenuAudio } from '@/hooks/useMenuAudio'
@@ -235,30 +226,7 @@ export function GameCanvas() {
             <GameLoop />
 
             <Lighting tier={tier} />
-            <FactoryFloor />
-
-            {/* ── CONTROL CORNER (north-east) ─────────────────────────────
-                PLC panels on the north wall, workbench + shelving adjacent.
-                MCC against the east wall for short cable runs. */}
-            <PLCPanel position={[7,  1, -9.2]} />
-            <PLCPanel position={[10, 1, -9.2]} />
-            <Workbench position={[8, 0, -6.5]} />
-            <IndustrialShelving position={[13, 0, -7]} />
-            <MotorControlCenter position={[13.2, 0, -1]} />
-
-            {/* ── BREAKER PANEL — west wall ─────────────────────────────────
-                Main power disconnect. When power fails, player walks here
-                to flip the breaker back on. Systems must recover state. */}
-            <BreakerPanel
-              position={[-14.5, 1.6, -5]}
-              rotation={[0, Math.PI / 2, 0]}
-            />
-
-            {/* ── SUPERVISOR OFFICE — south-east corner, flush against south wall ─
-                Elevated mezzanine with glass-fronted office, metal stairs
-                running sideways (west) along the wall. Back wall = factory wall.
-                Supervisor will burst out and run down stairs (trip hazard). */}
-            <SupervisorOffice position={[6, 0, 8]} />
+            <BlenderEnvironment />
 
             {/* ── MPS STATIONS — all 10 Festo stations ─────────────────────
                 Positions defined in src/config/factoryLayout.ts.
@@ -270,11 +238,11 @@ export function GameCanvas() {
                 For now, demo placement for visual scale check. */}
             <DemoWorkpieces />
 
-            {/* ── CEILING INFRASTRUCTURE ───────────────────────────────────
-                Cable trays above aisles, pipe runs on west side. */}
-            <CeilingPipes />
-            <CableTray position={[5, 4.2, 0]} />
-            <CableTray position={[-5, 4.2, 0]} />
+            {/* ── BLENDER LINE — secondary comparison line ──────────────────
+                Blender-modeled stations (GLB) placed 3m behind the main line.
+                Walk between the lines to compare primitive vs Blender quality. */}
+            <BlenderLine />
+
             <PlayerController />
           </Physics>
         </Suspense>

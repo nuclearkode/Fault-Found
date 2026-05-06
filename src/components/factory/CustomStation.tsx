@@ -62,7 +62,7 @@ export function CustomStation({
   frameColor,
   stationId = 'custom_station',
 }: CustomStationProps) {
-  const { nodes, materials } = useGLTF(MODEL_PATH) as GLTFResult
+  const { nodes, materials } = useGLTF(MODEL_PATH) as unknown as GLTFResult
 
   // Optionally override the frame material colour without mutating the shared material
   const frameMaterial = useMemo(() => {
