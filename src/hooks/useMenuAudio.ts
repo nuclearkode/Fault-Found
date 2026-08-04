@@ -20,10 +20,14 @@ export function useMenuAudio(isPlaying: boolean) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hasStartedRef = useRef(false)
+  // Once the player is in the game the theme is done for good. Without this, the
+  // gesture listeners below could restart it mid-session — every click, keypress
+  // and mouse move is a candidate trigger.
+  const retiredRef = useRef(false)
 
   // Start playback (called on mount or first user interaction)
   const startPlayback = useCallback(() => {
-    if (hasStartedRef.current || !audioRef.current) return
+    if (retiredRef.current || hasStartedRef.current || !audioRef.current) return
     const audio = audioRef.current
 
     audio.play().then(() => {
@@ -42,7 +46,21 @@ export function useMenuAudio(isPlaying: boolean) {
     audio.preload = 'auto'
     audioRef.current = audio
 
+    // Belt and braces. Fading on a state change is not enough on its own: any
+    // later call to play() — a stray gesture listener, a remount, the browser
+    // resuming media after a tab switch — restarts the theme underneath the game.
+    // Guarding the element's own `play` event catches every one of those routes,
+    // because whatever started it has to fire this.
+    const guard = () => {
+      if (retiredRef.current) {
+        audio.pause()
+        audio.currentTime = 0
+      }
+    }
+    audio.addEventListener('play', guard)
+
     return () => {
+      audio.removeEventListener('play', guard)
       // Cleanup on unmount
       if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current)
       audio.pause()
@@ -54,6 +72,20 @@ export function useMenuAudio(isPlaying: boolean) {
   // Attempt autoplay + fallback to first user interaction
   useEffect(() => {
     if (!isPlaying) return
+
+    // Coming back to the title after a loss puts us here a second time, and the
+    // retirement latch below would otherwise keep the theme off for the rest of
+    // the session — a silent menu. Retirement means "not while the player is in
+    // the game", not "never again".
+    retiredRef.current = false
+    hasStartedRef.current = false
+    // The fade-out left the element at zero. Playing it again without this
+    // starts the theme silently, which is indistinguishable from it not playing.
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current)
+      fadeIntervalRef.current = null
+    }
+    if (audioRef.current) audioRef.current.volume = 0.6
 
     // Try immediate autoplay
     startPlayback()
@@ -86,9 +118,14 @@ export function useMenuAudio(isPlaying: boolean) {
   // Fade out when isPlaying becomes false (game starts)
   useEffect(() => {
     if (isPlaying) return
-    if (!audioRef.current || !hasStartedRef.current) return
-
+    retiredRef.current = true          // the theme never comes back this session
+    if (!audioRef.current) return
     const audio = audioRef.current
+    if (!hasStartedRef.current) {
+      // never got going — make sure a queued play() can't sneak through
+      audio.pause()
+      return
+    }
     const startVolume = audio.volume
     const steps = 30  // 30 steps over the fade duration
     const stepTime = FADE_DURATION_MS / steps

@@ -1,0 +1,82 @@
+{
+  "id": "S02",
+  "rig": "silo_cell",
+  "title": "Silo Line Won't Index",
+  "difficulty": 2,
+  "tier": 2,
+  "environment": "Warehouse — silo fill cell, west bay",
+  "briefing": "Night shift left a note: the silo fill line 'runs but nothing moves'. Operators pressed START, the RUN lamp came on, the motor is humming, but cartons are sitting where they were left and nothing has been filled since 03:00. Derek wants it back before the morning run. Nothing on the HMI is flagged.",
+  "timeLimit": 900,
+
+  "tags": [
+    { "id": "I:1/00", "label": "START_PB",    "type": "BOOL", "value": false, "description": "Start pushbutton, momentary NO" },
+    { "id": "I:1/01", "label": "STOP_PB",     "type": "BOOL", "value": false, "description": "Stop pushbutton, momentary NC in field" },
+    { "id": "I:1/02", "label": "ESTOP",       "type": "BOOL", "value": false, "description": "Emergency stop, maintained" },
+    { "id": "I:1/03", "label": "PROX_SENSOR", "type": "BOOL", "value": false, "description": "Inductive prox — carton present under silo spout" },
+    { "id": "I:1/04", "label": "LEVEL_SENSOR","type": "BOOL", "value": false, "description": "Through-beam photo-eye — carton full" },
+    { "id": "I:1/05", "label": "MODE_SEL",    "type": "BOOL", "value": false, "description": "A/B/C mode selector — declared so the cell's writes land on a real tag; no rung consumes it yet" },
+    { "id": "O:2/00", "label": "CONV_MOTOR",  "type": "BOOL", "value": false, "description": "Conveyor gearmotor contactor" },
+    { "id": "O:2/01", "label": "FILL_VALVE",  "type": "BOOL", "value": false, "description": "Silo discharge solenoid valve" },
+    { "id": "O:2/02", "label": "RUN_LIGHT",   "type": "BOOL", "value": false, "description": "RUN indicator / seal-in bit" },
+    { "id": "O:2/03", "label": "FILL_LIGHT",  "type": "BOOL", "value": false, "description": "FILL indicator" },
+    { "id": "O:2/04", "label": "FULL_LIGHT",  "type": "BOOL", "value": false, "description": "FULL indicator" }
+  ],
+
+  "rungs": [
+    { "id": 1, "description": "Start/stop seal-in. RUN latches on START, drops on STOP or E-STOP.", "condition": "(I:1/00 OR O:2/02) AND NOT I:1/01 AND NOT I:1/02", "output": "O:2/02" },
+    { "id": 2, "description": "Motor runs whenever RUN is on and the valve is shut.",               "condition": "O:2/02 AND NOT O:2/01",                                   "output": "O:2/00" },
+    { "id": 3, "description": "Valve opens with a carton at the prox and the box not yet full.",    "condition": "O:2/02 AND I:1/03 AND NOT I:1/04",                        "output": "O:2/01" },
+    { "id": 4, "description": "FILL lamp follows the valve.",                                       "condition": "O:2/01",                                                  "output": "O:2/03" },
+    { "id": 5, "description": "FULL lamp follows the level sensor.",                                "condition": "I:1/04",                                                  "output": "O:2/04" }
+  ],
+
+  "faults": [
+    {
+      "id": "F1",
+      "type": "mechanical_jam",
+      "targetTag": "O:2/00",
+      "effect": "Drive roller lagging is worn smooth and the take-up is slack. The contactor pulls in and the gearmotor turns, but the belt slips on the drive roller and the carton never moves. Because no carton ever reaches the prox sensor, the fill never starts — so the PLC sits in a perfectly valid state, waiting.",
+      "clues": [
+        "RUN lamp is lit and the motor is audibly running, but no carton moves.",
+        "O:2/00 is TRUE at the processor and 24 V is present at the contactor coil — the output is doing its job.",
+        "I:1/03 never makes, so FILL and FULL never light. The ladder is behaving exactly as written.",
+        "Belt surface is glazed; a hand mark on the belt does not travel with the drive roller.",
+        "Fine black rubber dust under the drive end of the conveyor."
+      ],
+      "solution": "Lock out and tag out the conveyor at the MCC before reaching inside the guard. Re-tension the belt at the take-up and replace the worn drive-roller lagging. This is a mechanical failure — no program or wiring change is correct.",
+      "active": true
+    }
+  ],
+
+  "redHerrings": [
+    {
+      "description": "The prox sensor's LED is dark.",
+      "location": "Prox sensor bracket at the fill position",
+      "whyMisleading": "It is dark because no target is in front of it, which is correct. Replacing a healthy sensor costs time and a parts-order penalty."
+    },
+    {
+      "description": "The level sensor lens has a light film of product dust.",
+      "location": "Photo-eye across the carton mouth",
+      "whyMisleading": "Real but irrelevant — the level sensor is downstream of the failure and is never reached this cycle. Cleaning it changes nothing."
+    }
+  ],
+
+  "derekScript": {
+    "initialCall": "The silo line's dead in the water. Motor's running, nothing's moving. I need cartons filling before the morning run.",
+    "checkIn5min": "Any joy? The RUN light's on, so it can't be the PLC, can it?",
+    "impatient10min": "We're backing up here. Just swap the sensor and let's move on.",
+    "angry15min": "This is costing us. If you can't find it I'm calling the contractor.",
+    "resolution": "Belt was slipping? All that and it's a roller. Good catch — better than the contractor would've done."
+  },
+
+  "scoring": {
+    "parTime": 420,
+    "maxScore": 5000,
+    "penalties": {
+      "wrongDiagnosis": 200,
+      "unnecessaryPartOrder": 100,
+      "skipLOTO": 300,
+      "derekEscalation": 150
+    }
+  }
+}

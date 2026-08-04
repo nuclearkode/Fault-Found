@@ -60,6 +60,13 @@ export interface Fault {
 
 export interface ScenarioConfig {
   id: string             // S01, S02, etc.
+  /**
+   * Which equipment rig this job takes place on. The warehouse shell is shared;
+   * the machinery is spawned per scenario, so a silo job doesn't ship an MPS
+   * line the player never touches. Mirrors RigId in the game store — kept as a
+   * plain string here because the engine must not import from the store.
+   */
+  rig?: 'none' | 'mps_line' | 'silo_cell'
   title: string
   difficulty: number     // 1–5
   tier: number           // Derek urgency: 1–3

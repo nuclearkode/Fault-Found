@@ -12,11 +12,43 @@
 
 import type { GPUTier } from '@/utils/gpuCapabilities'
 import { FACTORY } from './FactoryFloor'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import * as THREE from 'three'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useGameStore } from '@/stores/gameStore'
 
 interface LightingProps {
   tier: GPUTier
+}
+
+/** How far down the shed goes when he is fully wound up. */
+const ANGRY_DIM = 0.28
+
+/**
+ * Pulls every light in the group down as the supervisor's anger rises.
+ *
+ * Done by scaling the live lights rather than re-rendering with new intensity
+ * props, because anger changes every frame — driving it through React would be
+ * a full reconcile per frame for a number that only feeds three.js. Each light's
+ * authored intensity is captured once into userData and treated as its 100%.
+ */
+function AngerDimmer({ group }: { group: React.RefObject<THREE.Group | null> }) {
+  const dim = useRef(1)
+  useFrame((_, delta) => {
+    const g = group.current
+    if (!g) return
+    const anger = useGameStore.getState().anger
+    const want = 1 - Math.min(1, anger) * (1 - ANGRY_DIM)
+    dim.current = THREE.MathUtils.damp(dim.current, want, 3, Math.min(delta, 0.05))
+    g.traverse((o) => {
+      const l = o as THREE.Light
+      if (!l.isLight) return
+      if (l.userData.baseIntensity === undefined) l.userData.baseIntensity = l.intensity
+      l.intensity = (l.userData.baseIntensity as number) * dim.current
+    })
+  })
+  return null
 }
 
 export function Lighting({ tier }: LightingProps) {
@@ -47,8 +79,11 @@ export function Lighting({ tier }: LightingProps) {
   const fogNear = 10 + (1 - fogDensity) * 30
   const fogFar = 25 + (1 - fogDensity) * 60
 
+  const group = useRef<THREE.Group>(null)
+
   return (
-    <group name="lighting">
+    <group name="lighting" ref={group}>
+      <AngerDimmer group={group} />
       {/* Bright ambient — factories are well-lit */}
       <ambientLight intensity={0.5 * brightness} color="#e8e8f0" />
 
@@ -141,6 +176,32 @@ export function Lighting({ tier }: LightingProps) {
           color="#f0ece0"
         />
       )}
+
+      {/* Task lighting over the north-wall switchgear run.
+          The tube grid is built from the gaps BETWEEN roof beams, and the
+          northernmost beam is at z = -7.5, so there is no bay north of it and
+          the whole control corner sat in the dark — which is most of why it read
+          as a mess. Two fixtures over the cabinets rather than a sixth grid row,
+          because that is what the room would actually have and it costs two
+          lights instead of five. */}
+      {tier !== 'low' && ([6.7, 10.2] as const).map((x) => (
+        <group key={x} position={[x, FACTORY.HEIGHT - 0.45, -8.9]}>
+          <pointLight intensity={0.55 * brightness} color="#f8f4ec" distance={9} decay={2} />
+          <mesh name={`task_light_${x}`}>
+            <boxGeometry args={[1.1, 0.05, 0.16]} />
+            <meshStandardMaterial
+              color="#f8f6f0"
+              emissive="#f8f6f0"
+              emissiveIntensity={2.0 * brightness}
+              roughness={0.1}
+            />
+          </mesh>
+          <mesh position={[0, 0.05, 0]}>
+            <boxGeometry args={[1.2, 0.07, 0.24]} />
+            <meshStandardMaterial color="#d8d8d8" roughness={0.5} metalness={0.3} />
+          </mesh>
+        </group>
+      ))}
 
       {/* Emergency exit light (red) */}
       <pointLight

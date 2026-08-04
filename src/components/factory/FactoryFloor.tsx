@@ -11,7 +11,6 @@
  */
 
 import { RigidBody } from '@react-three/rapier'
-import * as THREE from 'three'
 import { useMemo } from 'react'
 
 // Factory dimensions
@@ -60,34 +59,44 @@ function WallSegment({
 }
 
 function FloorMarkings() {
-  // Safety yellow lines on the floor — organized around actual equipment
+  // Aisle paint marks the EDGES of a walkway, never its centre. The floor used
+  // to carry five centre stripes — three running the full 20 m depth, two the
+  // full 30 m width — which bounded nothing, crossed each other at arbitrary
+  // points and read as a scribble from anywhere on the floor. These are four
+  // lines forming one T: a 2.8 m walkway down the middle of the shed and a spur
+  // across the front of the production bay, each stopping where the route does.
   const lines = useMemo(() => [
-    // ── MAIN AISLES (yellow safety paint, 100mm wide) ──
-    // Centre aisle (north-south, player's main walking path)
-    { pos: [0, 0.005, 0] as [number, number, number], args: [0.1, 0.01, FACTORY.DEPTH] as [number, number, number], color: '#c4a818' },
-    // East service aisle (access to PLC + MCC + shelving)
-    { pos: [6, 0.005, 0] as [number, number, number], args: [0.1, 0.01, FACTORY.DEPTH] as [number, number, number], color: '#c4a818' },
-    // West service aisle (access to breaker panel)
-    { pos: [-6, 0.005, 0] as [number, number, number], args: [0.1, 0.01, FACTORY.DEPTH] as [number, number, number], color: '#c4a818' },
+    // ── MAIN WALKWAY (yellow safety paint, 100mm wide) ──
+    ...([-1.4, 1.4] as const).map((x) => ({
+      pos: [x, 0.005, -0.4] as [number, number, number],
+      args: [0.1, 0.01, 18] as [number, number, number],
+      color: '#c4a818',
+    })),
 
-    // ── CROSS AISLES ──
-    // Front of stations (operator walkway between main line and south area)
-    { pos: [0, 0.005, -2] as [number, number, number], args: [FACTORY.WIDTH, 0.01, 0.1] as [number, number, number], color: '#c4a818' },
-    // Between south stations and supervisor office
-    { pos: [0, 0.005, 5] as [number, number, number], args: [FACTORY.WIDTH, 0.01, 0.1] as [number, number, number], color: '#c4a818' },
+    // ── CROSS SPUR, across the front of the production line ──
+    ...([-2.4, -1.0] as const).map((z) => ({
+      pos: [0, 0.005, z] as [number, number, number],
+      args: [23, 0.01, 0.1] as [number, number, number],
+      color: '#c4a818',
+    })),
 
     // ── HAZARD BOUNDARIES (red) ──
     // Around breaker panel (west wall)
     { pos: [-13, 0.005, -5] as [number, number, number], args: [2, 0.01, 2] as [number, number, number], color: '#cc3333' },
-    // Around MCC (east wall)
-    { pos: [13, 0.005, -1] as [number, number, number], args: [2, 0.01, 2] as [number, number, number], color: '#cc3333' },
-    // PLC panel clearance zone
-    { pos: [8.5, 0.005, -8] as [number, number, number], args: [8, 0.01, 0.1] as [number, number, number], color: '#cc3333' },
+    // Switchgear clearance line — 1.2 m in front of the north-wall run of PLC
+    // cabinets and the MCC, and only as long as that run. It used to cross the
+    // whole bay at z=-8 while the equipment it was protecting stood elsewhere.
+    { pos: [8.3, 0.005, -8.6] as [number, number, number], args: [6.6, 0.01, 0.1] as [number, number, number], color: '#cc3333' },
+    // Return legs, so the clearance reads as a zone rather than a stray line
+    { pos: [5.05, 0.005, -9.3] as [number, number, number], args: [0.1, 0.01, 1.4] as [number, number, number], color: '#cc3333' },
+    { pos: [11.55, 0.005, -9.3] as [number, number, number], args: [0.1, 0.01, 1.4] as [number, number, number], color: '#cc3333' },
+    // Aisle edge in front of the east-wall stores run
+    { pos: [13.6, 0.005, -3.5] as [number, number, number], args: [0.1, 0.01, 7.5] as [number, number, number], color: '#c4a818' },
 
-    // ── STATION AREA BOUNDARIES (hatched marking — simplified as thin dashes) ──
-    // Main production line footprint
-    { pos: [-4.55, 0.005, -4] as [number, number, number], args: [0.06, 0.01, 2.5] as [number, number, number], color: '#888' },
-    { pos: [4.55, 0.005, -4] as [number, number, number], args: [0.06, 0.01, 2.5] as [number, number, number], color: '#888' },
+    // The two grey "hatching" stubs that used to sit either side of the
+    // production line are gone: 60 mm marks in a colour close to the concrete,
+    // bounding nothing and reading as scuffs. The green epoxy patch under the
+    // line already says where the line is, and says it better.
   ], [])
 
   return (

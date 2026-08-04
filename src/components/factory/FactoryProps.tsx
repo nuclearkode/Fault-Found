@@ -9,9 +9,12 @@ import { RigidBody } from '@react-three/rapier'
 import { useMemo } from 'react'
 import { FACTORY } from './FactoryFloor'
 
-export function Workbench({ position = [-10, 0, 6] as [number, number, number] }) {
+export function Workbench({
+  position = [-10, 0, 6] as [number, number, number],
+  rotation = [0, 0, 0] as [number, number, number],
+}) {
   return (
-    <RigidBody type="fixed" colliders="cuboid" position={position}>
+    <RigidBody type="fixed" colliders="cuboid" position={position} rotation={rotation}>
       <group name="workbench">
         {/* Table top */}
         <mesh name="workbench_top" position={[0, 0.9, 0]} castShadow receiveShadow>
@@ -40,9 +43,12 @@ export function Workbench({ position = [-10, 0, 6] as [number, number, number] }
   )
 }
 
-export function IndustrialShelving({ position = [13, 0, -5] as [number, number, number] }) {
+export function IndustrialShelving({
+  position = [13, 0, -5] as [number, number, number],
+  rotation = [0, 0, 0] as [number, number, number],
+}) {
   return (
-    <RigidBody type="fixed" colliders="cuboid" position={position}>
+    <RigidBody type="fixed" colliders="cuboid" position={position} rotation={rotation}>
       <group name="shelving">
         {/* Uprights */}
         {[-1.2, 1.2].map((x, i) => (
@@ -112,11 +118,28 @@ export function CableTray({ position = [4, FACTORY.HEIGHT - 0.8, 0] as [number, 
           <meshStandardMaterial color="#5a6370" roughness={0.5} metalness={0.6} />
         </mesh>
       ))}
-      {/* Cable bundles */}
-      <mesh name="cables_bundle" position={[0, 0.04, 0]}>
-        <boxGeometry args={[0.3, 0.06, FACTORY.DEPTH - 3]} />
-        <meshStandardMaterial color="#1a1a2e" roughness={0.9} metalness={0} />
-      </mesh>
+      {/* Cable bundles — round, and three of them.
+          They were one flat slab at #1a1a2e, which from the floor read as a
+          black hole in the ceiling rather than cables: a matte near-black plane
+          returns almost nothing, and the tray it sits in is directly under a
+          light row, so the metal around it blew out white and framed the void.
+          Cylinders catch a highlight along their length, which is the whole
+          reason a bundle of cable looks like cable. */}
+      {([
+        [-0.1, '#2f333c'],
+        [0.0, '#4a4f59'],
+        [0.1, '#6b3a34'],
+      ] as const).map(([x, colour], i) => (
+        <mesh
+          key={i}
+          name={`cables_bundle_${i}`}
+          position={[x, 0.06, 0]}
+          rotation={[Math.PI / 2, 0, 0]}
+        >
+          <cylinderGeometry args={[0.045, 0.045, FACTORY.DEPTH - 3, 8]} />
+          <meshStandardMaterial color={colour} roughness={0.75} metalness={0.05} />
+        </mesh>
+      ))}
     </group>
   )
 }

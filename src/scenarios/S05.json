@@ -1,0 +1,167 @@
+{
+  "id": "S05",
+  "rig": "silo_cell",
+  "title": "Filling With No Box",
+  "difficulty": 3,
+  "tier": 2,
+  "environment": "Warehouse — silo fill cell, west bay",
+  "briefing": "This one's daft. You press START and it starts pouring straight away — no box under it, nothing, just product onto the bare belt. The belt doesn't even move. FILL light comes on the second you hit start. I've never seen it do that. Nothing's been touched on it that I know of, but the guard got knocked when they brought the pallet truck through Thursday.",
+  "timeLimit": 720,
+  "tags": [
+    {
+      "id": "I:1/00",
+      "label": "START_PB",
+      "type": "BOOL",
+      "value": false,
+      "description": "Start pushbutton, momentary NO"
+    },
+    {
+      "id": "I:1/01",
+      "label": "STOP_PB",
+      "type": "BOOL",
+      "value": false,
+      "description": "Stop pushbutton, momentary NC in field"
+    },
+    {
+      "id": "I:1/02",
+      "label": "ESTOP",
+      "type": "BOOL",
+      "value": false,
+      "description": "Emergency stop, maintained"
+    },
+    {
+      "id": "I:1/03",
+      "label": "PROX_SENSOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Inductive prox — carton present under silo spout"
+    },
+    {
+      "id": "I:1/04",
+      "label": "LEVEL_SENSOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Through-beam photo-eye — carton full"
+    },
+    {
+      "id": "I:1/05",
+      "label": "MODE_SEL",
+      "type": "BOOL",
+      "value": false,
+      "description": "A/B/C mode selector — declared so the cell’s writes land on a real tag; no rung consumes it yet"
+    },
+    {
+      "id": "O:2/00",
+      "label": "CONV_MOTOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Conveyor gearmotor contactor"
+    },
+    {
+      "id": "O:2/01",
+      "label": "FILL_VALVE",
+      "type": "BOOL",
+      "value": false,
+      "description": "Silo discharge solenoid valve"
+    },
+    {
+      "id": "O:2/02",
+      "label": "RUN_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "RUN indicator / seal-in bit"
+    },
+    {
+      "id": "O:2/03",
+      "label": "FILL_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "FILL indicator"
+    },
+    {
+      "id": "O:2/04",
+      "label": "FULL_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "FULL indicator"
+    }
+  ],
+  "rungs": [
+    {
+      "id": 1,
+      "description": "Start/stop seal-in. RUN latches on START, drops on STOP or E-STOP.",
+      "condition": "(I:1/00 OR O:2/02) AND NOT I:1/01 AND NOT I:1/02",
+      "output": "O:2/02"
+    },
+    {
+      "id": 2,
+      "description": "Motor runs whenever RUN is on and the valve is shut.",
+      "condition": "O:2/02 AND NOT O:2/01",
+      "output": "O:2/00"
+    },
+    {
+      "id": 3,
+      "description": "Valve opens with a carton at the prox and the box not yet full.",
+      "condition": "O:2/02 AND I:1/03 AND NOT I:1/04",
+      "output": "O:2/01"
+    },
+    {
+      "id": 4,
+      "description": "FILL lamp follows the valve.",
+      "condition": "O:2/01",
+      "output": "O:2/03"
+    },
+    {
+      "id": 5,
+      "description": "FULL lamp follows the level sensor.",
+      "condition": "I:1/04",
+      "output": "O:2/04"
+    }
+  ],
+  "faults": [
+    {
+      "id": "F1",
+      "type": "wiring_short_circuit",
+      "targetTag": "I:1/03",
+      "effect": "The prox sensor cable was crushed against the guard frame when the pallet truck struck it, shorting the signal conductor to the 24 V rail. The input is permanently made, so the PLC believes a carton is always in position: the valve opens the instant RUN latches, and the motor rung — interlocked against the valve — never lets the belt move.",
+      "clues": [
+        "Product discharges onto an empty belt the moment START is pressed.",
+        "I:1/03 reads TRUE at the processor with no carton anywhere near the spout.",
+        "The prox sensor’s own target LED is dark, which does not agree with the input being made.",
+        "The belt never moves, because the motor rung is interlocked against the open valve.",
+        "The sensor cable is flattened where it passes the guard upright, and the guard is freshly scraped."
+      ],
+      "solution": "Isolate the cell, then replace the crushed section of prox sensor cable and re-route it clear of the guard frame. The disagreement between a dark sensor LED and a made input is the whole diagnosis: the signal is not coming from the sensor, so it is coming from somewhere it should not be.",
+      "active": true
+    }
+  ],
+  "redHerrings": [
+    {
+      "description": "The solenoid valve chatters faintly when it opens.",
+      "location": "Silo discharge",
+      "whyMisleading": "Normal for this valve at low header pressure. Replacing it costs a part and changes nothing."
+    },
+    {
+      "description": "A carton is sitting crooked further up the belt.",
+      "location": "Infeed",
+      "whyMisleading": "Nowhere near the prox, and the belt is not running. Straightening it proves nothing."
+    }
+  ],
+  "derekScript": {
+    "initialCall": "It's pouring product on the floor with no box under it. Shut it off, whatever you do.",
+    "checkIn5min": "Any idea yet? The sensor light’s off, is that not the problem?",
+    "impatient10min": "Just order a new prox and be done with it.",
+    "angry15min": "We are losing product by the sack here.",
+    "resolution": "The cable, not the sensor. Good — I’d have swapped the sensor and still been standing here."
+  },
+  "scoring": {
+    "parTime": 380,
+    "maxScore": 5000,
+    "penalties": {
+      "wrongDiagnosis": 200,
+      "unnecessaryPartOrder": 100,
+      "skipLOTO": 300,
+      "derekEscalation": 150
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "id": "S06",
+  "rig": "silo_cell",
+  "title": "Empty Boxes Going Out",
+  "difficulty": 3,
+  "tier": 3,
+  "environment": "Warehouse — silo fill cell, west bay",
+  "briefing": "Belt's running lovely, boxes going through one after another, and every single one of them is empty. It never stops for them, never fills, just carries them straight past the spout. And the FULL light is on constantly — it's on right now with nothing on the belt at all. Packing caught it two hours in, so there's a pallet of empties gone out already.",
+  "timeLimit": 780,
+  "tags": [
+    {
+      "id": "I:1/00",
+      "label": "START_PB",
+      "type": "BOOL",
+      "value": false,
+      "description": "Start pushbutton, momentary NO"
+    },
+    {
+      "id": "I:1/01",
+      "label": "STOP_PB",
+      "type": "BOOL",
+      "value": false,
+      "description": "Stop pushbutton, momentary NC in field"
+    },
+    {
+      "id": "I:1/02",
+      "label": "ESTOP",
+      "type": "BOOL",
+      "value": false,
+      "description": "Emergency stop, maintained"
+    },
+    {
+      "id": "I:1/03",
+      "label": "PROX_SENSOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Inductive prox — carton present under silo spout"
+    },
+    {
+      "id": "I:1/04",
+      "label": "LEVEL_SENSOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Through-beam photo-eye — carton full"
+    },
+    {
+      "id": "I:1/05",
+      "label": "MODE_SEL",
+      "type": "BOOL",
+      "value": false,
+      "description": "A/B/C mode selector — declared so the cell’s writes land on a real tag; no rung consumes it yet"
+    },
+    {
+      "id": "O:2/00",
+      "label": "CONV_MOTOR",
+      "type": "BOOL",
+      "value": false,
+      "description": "Conveyor gearmotor contactor"
+    },
+    {
+      "id": "O:2/01",
+      "label": "FILL_VALVE",
+      "type": "BOOL",
+      "value": false,
+      "description": "Silo discharge solenoid valve"
+    },
+    {
+      "id": "O:2/02",
+      "label": "RUN_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "RUN indicator / seal-in bit"
+    },
+    {
+      "id": "O:2/03",
+      "label": "FILL_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "FILL indicator"
+    },
+    {
+      "id": "O:2/04",
+      "label": "FULL_LIGHT",
+      "type": "BOOL",
+      "value": false,
+      "description": "FULL indicator"
+    }
+  ],
+  "rungs": [
+    {
+      "id": 1,
+      "description": "Start/stop seal-in. RUN latches on START, drops on STOP or E-STOP.",
+      "condition": "(I:1/00 OR O:2/02) AND NOT I:1/01 AND NOT I:1/02",
+      "output": "O:2/02"
+    },
+    {
+      "id": 2,
+      "description": "Motor runs whenever RUN is on and the valve is shut.",
+      "condition": "O:2/02 AND NOT O:2/01",
+      "output": "O:2/00"
+    },
+    {
+      "id": 3,
+      "description": "Valve opens with a carton at the prox and the box not yet full.",
+      "condition": "O:2/02 AND I:1/03 AND NOT I:1/04",
+      "output": "O:2/01"
+    },
+    {
+      "id": 4,
+      "description": "FILL lamp follows the valve.",
+      "condition": "O:2/01",
+      "output": "O:2/03"
+    },
+    {
+      "id": 5,
+      "description": "FULL lamp follows the level sensor.",
+      "condition": "I:1/04",
+      "output": "O:2/04"
+    }
+  ],
+  "faults": [
+    {
+      "id": "F1",
+      "type": "sensor_fail_high",
+      "targetTag": "I:1/04",
+      "effect": "The level photo-eye has failed with its output latched on. The PLC therefore believes every carton is already full: the valve rung is inhibited so nothing ever fills, and with the valve permanently shut the motor rung runs the belt continuously, carrying empty cartons straight through the station.",
+      "clues": [
+        "FULL lamp is lit continuously, including with no carton on the belt at all.",
+        "I:1/04 reads TRUE at the processor at all times and never changes state.",
+        "The belt never stops at the fill position and the FILL lamp never lights.",
+        "Breaking the beam by hand produces no change at the input — a healthy through-beam would toggle.",
+        "The receiver is warm and its alignment LED is on solid rather than modulating."
+      ],
+      "solution": "Lock out and replace the failed through-beam receiver, then re-align it and prove it toggles from the processor before running product. A sensor that cannot be made to change state by hand has failed — no amount of cleaning or re-aiming recovers it.",
+      "active": true
+    }
+  ],
+  "redHerrings": [
+    {
+      "description": "The prox sensor is caked in product dust.",
+      "location": "Fill position bracket",
+      "whyMisleading": "Genuinely dirty, and completely irrelevant — the belt never stops for it because the valve rung is inhibited upstream."
+    },
+    {
+      "description": "The silo hopper is showing low on the sight glass.",
+      "location": "Silo body",
+      "whyMisleading": "Low because nothing has been drawn for two hours, which is the consequence. Refilling it changes nothing."
+    }
+  ],
+  "derekScript": {
+    "initialCall": "We've shipped a pallet of empty boxes. I need this found now.",
+    "checkIn5min": "Have you got it? Packing are refusing to take any more off the line.",
+    "impatient10min": "The FULL light is on, so the boxes must be full. Is it the packer’s scale?",
+    "angry15min": "A whole pallet, out the door. Do you understand?",
+    "resolution": "The full sensor was lying to us the whole time. Right."
+  },
+  "scoring": {
+    "parTime": 400,
+    "maxScore": 5000,
+    "penalties": {
+      "wrongDiagnosis": 200,
+      "unnecessaryPartOrder": 100,
+      "skipLOTO": 300,
+      "derekEscalation": 150
+    }
+  }
+}

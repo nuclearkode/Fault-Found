@@ -62,7 +62,12 @@ export function CustomStation({
   frameColor,
   stationId = 'custom_station',
 }: CustomStationProps) {
-  const { nodes, materials } = useGLTF(MODEL_PATH) as GLTFResult
+  // Via `unknown`: useGLTF is typed as returning index-signature maps, and the
+  // hand-written GLTFResult narrows those to specific keys. TypeScript rightly
+  // refuses that as a direct assertion because neither type is a subtype of the
+  // other. This was failing `next build` outright — tsc runs after the bundle
+  // compiles, so it went unnoticed in dev.
+  const { nodes, materials } = useGLTF(MODEL_PATH) as unknown as GLTFResult
 
   // Optionally override the frame material colour without mutating the shared material
   const frameMaterial = useMemo(() => {

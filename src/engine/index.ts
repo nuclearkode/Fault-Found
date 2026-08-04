@@ -1,4 +1,10 @@
-export { runScanCycle, createTagMap, evaluateCondition, applyFaults } from './scanCycle'
+export {
+  runScanCycle,
+  createTagMap,
+  evaluateCondition,
+  applyFaults,
+  hasMechanicalFault,
+} from './scanCycle'
 export { calculateScore, calculateRank } from './scoringEngine'
 export type { PenaltyRecord } from './scoringEngine'
 export type {

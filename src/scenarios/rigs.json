@@ -1,0 +1,14 @@
+{
+  "silo_cell": {
+    "name": "Silo fill cell — west bay",
+    "purpose": "Fills cartons with granular product and sends them on to packing.",
+    "sequence": "A conveyor indexes an empty carton along the belt. An inductive prox sensor sees it arrive under the silo spout and the belt stops, leaving the box in position. A solenoid gate in the silo discharge opens and product runs into the carton. A through-beam photo-eye across the mouth of the box makes when it is full, the gate shuts, and the belt indexes the full carton out and the next empty one in.",
+    "panel": "START and STOP on the operator panel latch and drop a seal-in rung; a maintained E-STOP kills it outright. RUN, FILL and FULL lamps report which part of the cycle the processor believes it is in — which is not always the same as what the machine is doing, and that gap is the job."
+  },
+  "mps_line": {
+    "name": "MPS transfer line",
+    "purpose": "Moves and sorts workpieces between stations.",
+    "sequence": "Stations hand parts along the line under their own interlocks.",
+    "panel": "Each station carries its own START, STOP and E-STOP."
+  }
+}

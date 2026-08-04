@@ -1,131 +1,105 @@
 'use client'
 
 /**
- * AssemblyRobotStation — 4-joint articulated robot arm + fixture.
- * Scaled to real proportions — robot arm stands ~0.5m tall on the plate.
+ * AssemblyRobotStation — ST100
+ *
+ * Loads the station GLB exported from blender_source/mps_stations.blend:
+ * cabinet, profile plate, 4-axis articulated robot on its pedestal, part
+ * fixture and controller.
+ *
+ * Joint angles are not hard-coded here. Each joint carries its axis and its
+ * home→driven angle in the GLB node `userData`, written from the Blender custom
+ * properties — see ./glbAnimation.ts.
+ *
+ *   ST100_joint1 → Q100.0  (rotate Y — base slew)
+ *   ST100_joint2 → Q100.1  (rotate Z — shoulder)
+ *   ST100_joint3 → Q100.2  (rotate Z — elbow)
+ *   ST100_joint4 → Q100.3  (rotate Z — wrist)
+ *   ST100_Jaw_L/R      → Q100.4  (guide fingers, see GRIPPER_STROKE below)
  */
 
-import { useRef } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { StationBase } from './StationBase'
+import { useGameStore } from '@/stores/gameStore'
+import { collectAnimSpecs, isEnergised, applyAnimSpec } from './glbAnimation'
 
-const MAT = {
-  base: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4, metalness: 0.6 }),
-  arm: new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.35, metalness: 0.5 }),
-  joint: new THREE.MeshStandardMaterial({ color: '#333', roughness: 0.4, metalness: 0.7 }),
-  gripper: new THREE.MeshStandardMaterial({ color: '#555', roughness: 0.4, metalness: 0.5 }),
-  fixture: new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.4, metalness: 0.6 }),
-  safety: new THREE.MeshStandardMaterial({
-    color: '#ef4444', roughness: 0.4, metalness: 0.2,
-    emissive: '#ef4444', emissiveIntensity: 0.2, transparent: true, opacity: 0.25,
-  }),
-  profile: new THREE.MeshStandardMaterial({ color: '#c8ccd0', roughness: 0.3, metalness: 0.7 }),
-  mount: new THREE.MeshStandardMaterial({ color: '#888', roughness: 0.4, metalness: 0.6 }),
-  sensor: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.5, metalness: 0.4 }),
-} as const
+const MODEL_PATH = '/models/stations/st100.glb'
 
-interface Props { stationId: string; label: string }
+const JAW_TAG = 'Q100.4'
+
+/**
+ * Half-stroke of each guide finger, from ST100_gripper's `anim_range` in the GLB.
+ *
+ * The fingers move *outward*. They rest 20 mm apart with the 20 mm suction cup
+ * between them, so closing them would drive the geometry through the cup — the
+ * fingers spread to clear it while the vacuum seats onto the part.
+ */
+const GRIPPER_STROKE = 0.012
+
+interface Props {
+  stationId: string
+  label: string
+}
 
 export function AssemblyRobotStation({ stationId, label }: Props) {
-  const j1Ref = useRef<THREE.Group>(null)
-  const j2Ref = useRef<THREE.Group>(null)
-  const j3Ref = useRef<THREE.Group>(null)
-  const j4Ref = useRef<THREE.Group>(null)
+  const { scene } = useGLTF(MODEL_PATH)
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime()
-    if (j1Ref.current) j1Ref.current.rotation.y = Math.sin(t * 0.8) * 1.2
-    if (j2Ref.current) j2Ref.current.rotation.z = -0.3 + Math.sin(t * 0.6 + 1) * 0.4
-    if (j3Ref.current) j3Ref.current.rotation.z = Math.sin(t * 1.0 + 2) * 0.5
-    if (j4Ref.current) j4Ref.current.rotation.z = Math.sin(t * 1.4 + 3) * 0.3
+  // Clone so each placement gets its own object graph
+  const clonedScene = useMemo(() => scene.clone(true), [scene])
+
+  // The four servo joints, described by the Blender metadata
+  const animSpecs = useMemo(() => collectAnimSpecs(clonedScene), [clonedScene])
+
+  // Guide fingers need bespoke handling — they move as a mirrored pair
+  const jawLeftRef = useRef<THREE.Object3D | null>(null)
+  const jawRightRef = useRef<THREE.Object3D | null>(null)
+  const jawHomeX = useRef<{ left: number; right: number }>({ left: 0, right: 0 })
+
+  useEffect(() => {
+    clonedScene.traverse((child) => {
+      if (child.name === 'ST100_Jaw_L') {
+        jawLeftRef.current = child
+        jawHomeX.current.left = child.position.x
+      } else if (child.name === 'ST100_Jaw_R') {
+        jawRightRef.current = child
+        jawHomeX.current.right = child.position.x
+      }
+    })
+  }, [clonedScene])
+
+  useFrame((_, delta) => {
+    const lerpSpeed = 8 * delta
+    const tags = useGameStore.getState().tags
+
+    for (const spec of animSpecs) {
+      applyAnimSpec(spec, isEnergised(tags[spec.tag]?.value), lerpSpeed)
+    }
+
+    // Guide fingers spread symmetrically about the gripper centreline
+    const offset = isEnergised(tags[JAW_TAG]?.value) ? GRIPPER_STROKE : 0
+    if (jawLeftRef.current) {
+      jawLeftRef.current.position.x = THREE.MathUtils.lerp(
+        jawLeftRef.current.position.x,
+        jawHomeX.current.left - offset,
+        lerpSpeed,
+      )
+    }
+    if (jawRightRef.current) {
+      jawRightRef.current.position.x = THREE.MathUtils.lerp(
+        jawRightRef.current.position.x,
+        jawHomeX.current.right + offset,
+        lerpSpeed,
+      )
+    }
   })
 
   return (
-    <StationBase stationId={stationId} label={label}>
-      {/* Robot base (heavy pedestal) */}
-      <mesh name={`${stationId}_base`} position={[-0.05, 0.04, -0.05]} material={MAT.base} castShadow>
-        <cylinderGeometry args={[0.08, 0.1, 0.08, 16]} />
-      </mesh>
-
-      {/* Joint 1 — base rotation */}
-      <group ref={j1Ref} position={[-0.05, 0.08, -0.05]}>
-        <mesh material={MAT.joint}>
-          <cylinderGeometry args={[0.04, 0.04, 0.03, 12]} />
-        </mesh>
-
-        {/* Joint 2 — shoulder */}
-        <group ref={j2Ref} position={[0, 0.02, 0]}>
-          <mesh position={[0, 0.015, 0]} material={MAT.joint}>
-            <sphereGeometry args={[0.03, 10, 10]} />
-          </mesh>
-          {/* Upper arm */}
-          <mesh name={`${stationId}_joint2`} position={[0, 0.1, 0]} material={MAT.arm} castShadow>
-            <boxGeometry args={[0.04, 0.16, 0.04]} />
-          </mesh>
-
-          {/* Joint 3 — elbow */}
-          <group ref={j3Ref} position={[0, 0.18, 0]}>
-            <mesh material={MAT.joint}>
-              <sphereGeometry args={[0.025, 10, 10]} />
-            </mesh>
-            {/* Forearm */}
-            <mesh name={`${stationId}_joint3`} position={[0, 0.07, 0]} material={MAT.arm} castShadow>
-              <boxGeometry args={[0.03, 0.12, 0.03]} />
-            </mesh>
-
-            {/* Joint 4 — wrist */}
-            <group ref={j4Ref} position={[0, 0.13, 0]}>
-              <mesh material={MAT.joint}>
-                <sphereGeometry args={[0.02, 8, 8]} />
-              </mesh>
-              {/* Gripper */}
-              <group name={`${stationId}_gripper`}>
-                <mesh position={[0, 0.03, 0]} material={MAT.gripper}>
-                  <boxGeometry args={[0.025, 0.04, 0.025]} />
-                </mesh>
-                {([-1, 1] as const).map(s => (
-                  <mesh key={s} position={[s * 0.018, 0.055, 0]} material={MAT.gripper}>
-                    <boxGeometry args={[0.008, 0.025, 0.015]} />
-                  </mesh>
-                ))}
-              </group>
-            </group>
-          </group>
-        </group>
-      </group>
-
-      {/* Part fixture (on the plate beside robot) */}
-      <group position={[0.2, 0, 0.1]}>
-        <mesh name={`${stationId}_fixture`} material={MAT.fixture} castShadow>
-          <boxGeometry args={[0.1, 0.02, 0.1]} />
-        </mesh>
-        {([-1, 1] as const).map(s => (
-          <mesh key={s} position={[s * 0.04, 0.025, 0]} material={MAT.mount}>
-            <boxGeometry args={[0.01, 0.04, 0.01]} />
-          </mesh>
-        ))}
-        {/* V-block locator */}
-        <mesh position={[0, 0.015, -0.04]} material={MAT.mount}>
-          <boxGeometry args={[0.06, 0.015, 0.01]} />
-        </mesh>
-      </group>
-
-      {/* Safety light curtain posts */}
-      {([-0.3, 0.3] as const).map((z, i) => (
-        <mesh key={i} position={[-0.28, 0.15, z]} material={MAT.sensor} castShadow>
-          <boxGeometry args={[0.015, 0.3, 0.015]} />
-        </mesh>
-      ))}
-      {/* Light curtain beam (semi-transparent) */}
-      <mesh name={`${stationId}_safety_light`} position={[-0.28, 0.15, 0]} material={MAT.safety}>
-        <planeGeometry args={[0.005, 0.3]} />
-      </mesh>
-
-      {/* Controller box */}
-      <mesh position={[0.28, 0.06, -0.2]} material={MAT.sensor} castShadow>
-        <boxGeometry args={[0.06, 0.1, 0.08]} />
-      </mesh>
-    </StationBase>
+    <group name={stationId}>
+      <primitive object={clonedScene} castShadow receiveShadow />
+    </group>
   )
 }
+
+useGLTF.preload(MODEL_PATH)

@@ -89,7 +89,15 @@ export function applyFaults(tags: TagMap, faults: Fault[]): void {
 
     switch (fault.type) {
       case 'wiring_nc_no_swap':
-        // Invert boolean value
+        // Invert boolean value.
+        //
+        // ONLY sound on an input the 3D layer rewrites every frame — the prox,
+        // the level sensor, the E-stop. Faults are applied once per scan against
+        // whatever the tag currently holds, so on an input nothing re-establishes
+        // (a momentary pushbutton, say) this inverts its own previous output and
+        // the tag oscillates at the scan rate instead of reading steadily wrong.
+        // For those, model the swap as the state the PLC actually sees:
+        // `wiring_short_circuit` for a contact made when it should be open.
         if (tag.type === 'BOOL') {
           tag.value = !tag.value
         }
@@ -124,8 +132,17 @@ export function applyFaults(tags: TagMap, faults: Fault[]): void {
         break
 
       case 'mechanical_jam':
-        // Output stuck OFF
-        tag.value = tag.type === 'BOOL' ? false : 0
+        // Deliberately does NOT touch the tag.
+        //
+        // A mechanical failure is invisible to the PLC — the output stays
+        // energised, the contactor pulls in, the lamp lights, and the machine
+        // still doesn't move. Forcing the tag low would make it read as an
+        // output failure instead, which is a different fault and a much easier
+        // one to find. The 3D layer asks hasMechanicalFault() and refuses the
+        // physical effect; the processor's view of the world is untouched.
+        //
+        // (It would be a no-op regardless: faults are applied before the rungs,
+        // so a jam on a rung output is overwritten in the same scan.)
         break
 
       default:
@@ -134,6 +151,22 @@ export function applyFaults(tags: TagMap, faults: Fault[]): void {
         break
     }
   }
+}
+
+/**
+ * Is the equipment driven by `tagId` mechanically failed?
+ *
+ * The counterpart to the `mechanical_jam` no-op above. The PLC cannot see this,
+ * so the 3D layer must: it commands the actuator from the tag as normal, then
+ * asks here whether the physical thing actually responds.
+ *
+ *   const motorOn = isEnergised(tags['O:2/00']?.value)
+ *   if (motorOn && !hasMechanicalFault(faults, 'O:2/00')) advanceBelt(dt)
+ */
+export function hasMechanicalFault(faults: Fault[], tagId: string): boolean {
+  return faults.some(
+    (f) => f.active && f.type === 'mechanical_jam' && f.targetTag === tagId,
+  )
 }
 
 /**

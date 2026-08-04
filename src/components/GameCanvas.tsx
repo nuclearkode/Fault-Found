@@ -15,18 +15,22 @@
  */
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { Physics } from '@react-three/rapier'
+import { Canvas, useThree } from '@react-three/fiber'
+import { Physics, useRapier } from '@react-three/rapier'
 import { detectGPU, type GPUCaps } from '@/utils/gpuCapabilities'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useGameStore } from '@/stores/gameStore'
+import { SIMULATES, useUiFocus } from '@/stores/worldClock'
 import { PlayerController } from '@/components/player/PlayerController'
 import { FactoryFloor } from '@/components/factory/FactoryFloor'
 import { PLCPanel } from '@/components/factory/PLCPanel'
-import { StationRenderer } from '@/components/factory/stations/StationRenderer'
+import { RigRenderer } from '@/components/factory/RigRenderer'
+import { Supervisor } from '@/components/factory/Supervisor'
+import { FaultCamera } from '@/components/factory/FaultCamera'
+import { PreShift } from '@/components/factory/PreShift'
 import { Lighting } from '@/components/factory/Lighting'
 import { BreakerPanel } from '@/components/factory/BreakerPanel'
 import { SupervisorOffice } from '@/components/factory/SupervisorOffice'
-import { DemoWorkpieces } from '@/components/factory/Workpiece'
 import {
   Workbench,
   IndustrialShelving,
@@ -38,6 +42,7 @@ import { GameLoop } from '@/hooks/useGameLoop'
 import { useScenarioLoader } from '@/hooks/useScenarioLoader'
 import { useMenuAudio } from '@/hooks/useMenuAudio'
 import { useAmbientAudio } from '@/hooks/useAmbientAudio'
+import { CellAudio } from '@/hooks/useCellAudio'
 
 // ─── Accelerated raycasting ──────────────────────────────────────────────────
 // three-mesh-bvh patches Three.js prototypes so ALL raycasts in the scene
@@ -114,14 +119,61 @@ function ClickOverlay({ label, hint, onStart }: {
 }
 
 
-// ─── Dev-mode: auto-load S01 ─────────────────────────────────────────────────
+// ─── Dev-mode: auto-load a scenario ──────────────────────────────────────────
+// The scenario declares its own rig, so this also decides which machinery is on
+// the warehouse floor. S02 = the silo fill cell with the belt-slip fault live.
+
+const DEV_SCENARIO = 'S02'
+
+/**
+ * Countdown override, in seconds. S02 allows 900 — the right number to play
+ * against and a poor one to test against, because nothing about the failure path
+ * can be seen inside a quarter of an hour. Set to `undefined` to use the
+ * scenario's own limit.
+ */
+const DEV_TIME_LIMIT: number | undefined = 30
+
+/**
+ * Dev-only handles on the live scene and physics world, at `window.__scene` and
+ * `window.__world`.
+ *
+ * R3F keeps its store inside its own reconciler and Rapier's colliders exist
+ * only in WASM, so from the outside neither is reachable — which makes "what is
+ * that object near the ceiling?" and "is there actually a wall there?" questions
+ * you can only answer by reading source and guessing. Guessing is how the office
+ * shipped with no collision at all. Stripped from production builds.
+ */
+function SceneProbe() {
+  const scene = useThree(s => s.scene)
+  const camera = useThree(s => s.camera)
+  const { world } = useRapier()
+  useEffect(() => {
+    const w = window as unknown as Record<string, unknown>
+    w.__scene = scene
+    w.__world = world
+    w.__camera = camera
+    // Also the stores, which is what makes the fail state testable at all:
+    //   __game.getState().setSupervisor('chasing')   send him out now
+    //   __game.getState().startTimer(5)              five seconds on the clock
+    w.__game = useGameStore
+    w.__settings = useSettingsStore
+  }, [scene, world, camera])
+  return null
+}
 
 function ScenarioBootstrap() {
-  const { loadDev } = useScenarioLoader()
+  const { load } = useScenarioLoader()
+  // Keyed on runNonce, which resetRun() bumps — so coming back from a loss, or
+  // taking NEXT out of a win, reloads whatever job is queued rather than
+  // dropping the player into a spent scenario.
+  const runNonce = useGameStore(s => s.runNonce)
   useEffect(() => {
-    loadDev('S01')
+    const s = useGameStore.getState()
+    const id = runNonce === 0 ? DEV_SCENARIO : s.queuedScenario
+    if (runNonce === 0) s.setQueuedScenario(DEV_SCENARIO)
+    load(id, DEV_TIME_LIMIT)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [runNonce])
   return null
 }
 
@@ -165,7 +217,11 @@ export function GameCanvas() {
   const setStarted = useSettingsStore(s => s.setStarted)
   const setGpuTier = useSettingsStore(s => s.setGpuTier)
   const qualityOverride = useSettingsStore(s => s.qualityOverride)
-  const isPaused = useSettingsStore(s => s.isPaused)
+  // The reactive twin of worldRunning(). Literally the same lookup table, so
+  // the polled predicate and this prop cannot drift — which they did when they
+  // were two hand-written conditions and one of them froze the physics on a WIN.
+  const focus = useUiFocus()
+  const frozen = !SIMULATES[focus]
 
   useEffect(() => {
     const caps = detectGPU()
@@ -175,9 +231,11 @@ export function GameCanvas() {
   }, [setGpuTier])
 
   const handleStart = useCallback(() => {
+    useSettingsStore.getState().setOverlay('none')
     setStarted(true)
-    // Request pointer lock directly when starting the game
-    useSettingsStore.getState().requestPointerLock()
+    // Pointer lock is NOT requested here any more. What follows is the pre-shift
+    // sequence, which owns the camera and ends in a button the player has to be
+    // able to click. The Briefing panel takes the lock when they take the shift.
   }, [setStarted])
 
   // Menu theme audio — plays on start screen, fades out when game starts.
@@ -222,15 +280,26 @@ export function GameCanvas() {
         }}
         shadows={tier === 'high' ? 'soft' : tier === 'medium'}
         dpr={tier === 'high' ? [1, 2] : [1, 1]}
-        camera={{ fov: 75, near: 0.1, far: 100 }}
+        // Start at the player spawn at eye height. PlayerController overwrites this
+        // every frame once pointer lock is held, but until then the default [0,0,5]
+        // puts the camera on the floor at the origin, facing a wall of cabinet bases.
+        camera={{ fov: 75, near: 0.1, far: 100, position: [0, 1.7, 7] }}
         frameloop="always"
         style={{
           cursor: 'none',
-          pointerEvents: isPaused ? 'none' : 'auto',
+          // Any overlay that owns the cursor also takes the canvas out of the
+          // hit path. drei's click-to-lock is bound to selector="canvas", so a
+          // click landing beside an open laptop would otherwise yank the pointer
+          // straight back mid-edit.
+          pointerEvents: focus === 'world' || focus === 'title' ? 'auto' : 'none',
         }}
       >
         <Suspense fallback={null}>
-          <Physics gravity={[0, -9.81, 0]} colliders={false}>
+          {/* Any menu freezes the world, not just the player: rigid bodies stop
+              here, and the scan cycle, the countdown, the door and the supervisor
+              all check worldRunning(), which is the same three conditions. The
+              debrief counts as a menu — nothing moves behind it. */}
+          <Physics gravity={[0, -9.81, 0]} colliders={false} paused={frozen}>
             {/* PLC scan engine — 20Hz tick, only runs when phase === 'active' */}
             <GameLoop />
 
@@ -238,13 +307,23 @@ export function GameCanvas() {
             <FactoryFloor />
 
             {/* ── CONTROL CORNER (north-east) ─────────────────────────────
-                PLC panels on the north wall, workbench + shelving adjacent.
-                MCC against the east wall for short cable runs. */}
-            <PLCPanel position={[7,  1, -9.2]} />
-            <PLCPanel position={[10, 1, -9.2]} />
-            <Workbench position={[8, 0, -6.5]} />
-            <IndustrialShelving position={[13, 0, -7]} />
-            <MotorControlCenter position={[13.2, 0, -1]} />
+                Laid out along the two walls that bound it rather than scattered
+                across the middle of the bay, which is how the room actually
+                works and how it reads: switchgear in one run on the north wall,
+                stores and bench in one run on the east wall, and the floor
+                between them left clear to stand and work in.
+
+                Everything is flush. The north wall's inner face is z = -10 and
+                the east wall's is x = 15, so each unit is set back by half its
+                own depth — a cabinet 0.4 deep sits at -9.8, one 0.6 deep at
+                -9.65. The east-wall units are turned a quarter turn so their
+                backs, not their ends, face the wall. */}
+            <PLCPanel position={[6.0, 1, -9.8]} />
+            <PLCPanel position={[7.4, 1, -9.8]} />
+            <MotorControlCenter position={[10.2, 0, -9.65]} />
+            <IndustrialShelving position={[14.7, 0, -6.6]} rotation={[0, -Math.PI / 2, 0]} />
+            <IndustrialShelving position={[14.7, 0, -3.4]} rotation={[0, -Math.PI / 2, 0]} />
+            <Workbench position={[14.55, 0, -0.2]} rotation={[0, -Math.PI / 2, 0]} />
 
             {/* ── BREAKER PANEL — west wall ─────────────────────────────────
                 Main power disconnect. When power fails, player walks here
@@ -258,17 +337,37 @@ export function GameCanvas() {
                 Elevated mezzanine with glass-fronted office, metal stairs
                 running sideways (west) along the wall. Back wall = factory wall.
                 Supervisor will burst out and run down stairs (trip hazard). */}
-            <SupervisorOffice position={[6, 0, 8]} />
+            {/* Back-right corner from the player spawn at [0, 1.7, 7]. Sized so
+                its +X and +Z faces sit flush on the building walls at 15 and 10,
+                borrowing two of its four walls from the shed. */}
+            <SupervisorOffice position={[12.3, 0, 7.8]} />
+            {/* Derek. Paces his office until the shift clock runs out, then comes
+                through that door after the player. Walk cycle is baked in the
+                GLB; path, speed and the chase are driven in the component. */}
+            <Supervisor
+              office={[12.3, 0, 7.8]}
+              door={[10.65, 5.6]}
+              from={[10.9, 6.9]}
+              to={[14.2, 6.9]}
+            />
+            {/* Takes the debrief photo of the fault at the moment of the scare */}
+            <FaultCamera />
+            {/* Runs the line, breaks it on camera, then hands over to Briefing */}
+            <PreShift />
+            {process.env.NODE_ENV !== 'production' && <SceneProbe />}
 
-            {/* ── MPS STATIONS — all 10 Festo stations ─────────────────────
-                Positions defined in src/config/factoryLayout.ts.
-                Scaled 1.5× in StationRenderer. */}
-            <StationRenderer />
+            {/* ── EQUIPMENT RIG ────────────────────────────────────────────
+                The warehouse shell above is permanent; the machinery is not.
+                RigRenderer spawns whichever rig the scenario calls for — the
+                MPS line, the LogixPro silo cell, or nothing — centred on the
+                production bay. Switch with useGameStore.setActiveRig(). */}
+            <RigRenderer />
 
-            {/* ── WORKPIECES — independent entities ────────────────────────
-                These will flow through stations in Phase 3.
-                For now, demo placement for visual scale check. */}
-            <DemoWorkpieces />
+            {/* Procedural machine audio — motor, valve, contactor clicks and room
+                tone, synthesised from the PLC tags. Inside the Canvas because each
+                voice is attenuated by the player's distance from its source. */}
+            <CellAudio />
+
 
             {/* ── CEILING INFRASTRUCTURE ───────────────────────────────────
                 Cable trays above aisles, pipe runs on west side. */}

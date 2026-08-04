@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code agent worktrees — local checkouts, ~15 MB, no value in the repo.
+# .claude/launch.json IS tracked: it is how the dev server is started.
+.claude/worktrees/
+
+# Blender auto-backups
+*.blend1

@@ -4,6 +4,7 @@ import {
   createTagMap,
   runScanCycle,
   applyFaults,
+  hasMechanicalFault,
 } from '../scanCycle'
 import type { IOTag, Rung, Fault } from '../types'
 
@@ -106,6 +107,43 @@ describe('applyFaults', () => {
 
     applyFaults(tags, faults)
     expect(tags.get('I0.0')?.value).toBe(true)
+  })
+})
+
+describe('mechanical_jam', () => {
+  const jam: Fault = {
+    id: 'F1',
+    type: 'mechanical_jam',
+    targetTag: 'Q0.0',
+    effect: 'drive slips',
+    clues: [],
+    solution: 're-lag the roller',
+    active: true,
+  }
+
+  it('leaves its target tag untouched — the PLC cannot see a mechanical failure', () => {
+    const tags = createTagMap([makeBoolTag('Q0.0', 'MOTOR', true)])
+    applyFaults(tags, [jam])
+    expect(tags.get('Q0.0')!.value).toBe(true)
+  })
+
+  it('does not suppress the rung that drives the jammed output', () => {
+    const tags = createTagMap([
+      makeBoolTag('I0.0', 'RUN', true),
+      makeBoolTag('Q0.0', 'MOTOR', false),
+    ])
+    const rungs: Rung[] = [{ id: 1, condition: 'I0.0', output: 'Q0.0' }]
+    runScanCycle(tags, rungs, [jam])
+    // Output energised, contactor pulled in, lamp lit — and the belt still won't
+    // move. That contradiction is the whole scenario.
+    expect(tags.get('Q0.0')!.value).toBe(true)
+  })
+
+  it('is reported to the 3D layer by hasMechanicalFault', () => {
+    expect(hasMechanicalFault([jam], 'Q0.0')).toBe(true)
+    expect(hasMechanicalFault([jam], 'Q0.1')).toBe(false)
+    expect(hasMechanicalFault([{ ...jam, active: false }], 'Q0.0')).toBe(false)
+    expect(hasMechanicalFault([{ ...jam, type: 'sensor_fail_low' }], 'Q0.0')).toBe(false)
   })
 })
 

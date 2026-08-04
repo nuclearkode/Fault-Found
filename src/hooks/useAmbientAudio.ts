@@ -14,7 +14,7 @@ const AMBIENT_URL = '/audio/ambient_hum.mp3'
 
 export function useAmbientAudio(started: boolean) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const isPaused = useSettingsStore(s => s.isPaused)
+  const overlay = useSettingsStore(s => s.overlay)
 
   // Initialize audio element
   useEffect(() => {
@@ -36,7 +36,9 @@ export function useAmbientAudio(started: boolean) {
     const audio = audioRef.current
     if (!audio) return
 
-    if (started && !isPaused) {
+    // The shed keeps humming under the laptop — the player is still standing in
+    // it. It stops for the manual and the pause menu.
+    if (started && (overlay === 'none' || overlay === 'laptop')) {
       // Game is running, play the ambient hum
       audio.play().catch(e => {
         console.log('[FAULT//FOUND] Ambient audio playback blocked:', e)
@@ -45,5 +47,5 @@ export function useAmbientAudio(started: boolean) {
       // Game is stopped or paused
       audio.pause()
     }
-  }, [started, isPaused])
+  }, [started, overlay])
 }

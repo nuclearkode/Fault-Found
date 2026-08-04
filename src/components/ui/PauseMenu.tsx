@@ -77,9 +77,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export function PauseMenu() {
-  const isPaused = useSettingsStore(s => s.isPaused)
-  const setPaused = useSettingsStore(s => s.setPaused)
-  const setNeedsClick = useSettingsStore(s => s.setNeedsClick)
+  const isPaused = useSettingsStore(s => s.overlay === 'pause')
+  const closeOverlay = useSettingsStore(s => s.closeOverlay)
   const brightness = useSettingsStore(s => s.brightness)
   const setBrightness = useSettingsStore(s => s.setBrightness)
   const fogDensity = useSettingsStore(s => s.fogDensity)
@@ -97,46 +96,18 @@ export function PauseMenu() {
   const qualityOverride = useSettingsStore(s => s.qualityOverride)
   const setQualityOverride = useSettingsStore(s => s.setQualityOverride)
 
-  const [view, setView] = useState<'main' | 'settings'>('main')
-
-  // Debounce ESC — browser fires ESC for pointer lock release,
-  // then our handler fires again. Guard with a cooldown ref.
-  const escCooldown = useRef(false)
-
-  // Reset to main view when menu opens
-  useEffect(() => {
-    if (isPaused) {
-      setView('main')
-    }
-  }, [isPaused])
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Escape' && isPaused) {
-        e.preventDefault()
-        e.stopPropagation()
-        
-        if (view === 'settings') {
-          // If in settings, go back to main menu
-          setView('main')
-        } else {
-          // If in main menu, exit pause menu
-          setPaused(false)
-          // Note: We DO NOT requestPointerLock here because the browser natively
-          // blocks programmatic pointer locks triggered by the Escape key.
-          // The user will just be returned to the game and can click the screen
-          // anywhere to re-engage the pointer lock.
-        }
-      }
-    }
-    document.addEventListener('keydown', onKeyDown, true) // capture phase
-    return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [isPaused, view, setPaused])
+  // The view lives in the store now, not here, because Escape is handled once
+  // for the whole app in src/input/keymap.ts — settings back to main, main back
+  // to the world. A second Escape listener in this file opened and closed the
+  // menu in the same keystroke, which is why it needed a cooldown ref to work.
+  const view = useSettingsStore(s => s.pauseView)
+  const setView = useSettingsStore(s => s.setPauseView)
 
   const handleResume = useCallback(() => {
-    setPaused(false)
-    useSettingsStore.getState().requestPointerLock()
-  }, [setPaused])
+    // A click carries transient activation, so this one may re-lock — unlike the
+    // Escape path, where the browser refuses.
+    closeOverlay(true)
+  }, [closeOverlay])
 
   const handleQuit = () => {
     window.location.reload()
@@ -156,9 +127,9 @@ export function PauseMenu() {
       }}
       // CRITICAL: Stop ALL pointer events from reaching the canvas behind.
       // Without this, clicking sliders causes PointerLockControls to re-lock.
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); e.nativeEvent.stopPropagation(); }}
+      onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); e.nativeEvent.stopPropagation(); }}
+      onPointerDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); e.nativeEvent.stopPropagation(); }}
     >
       <div style={{
         width: view === 'main' ? '400px' : '680px',
@@ -298,7 +269,7 @@ export function PauseMenu() {
               </div>
 
               <Slider
-                label="Environment Brightness" value={brightness} min={0.5} max={1.5} step={0.1} onChange={setBrightness}
+                label="Environment Brightness" value={brightness} min={1.0} max={2.0} step={0.05} onChange={setBrightness}
               />
               <Slider
                 label="Atmospheric Density" value={fogDensity} min={0.01} max={0.08} step={0.01} onChange={setFogDensity}
