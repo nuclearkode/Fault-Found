@@ -65,13 +65,26 @@ describe('calculateScore — perfect run', () => {
     expect(score.accuracy).toBe(400) // 40% of 1000
     expect(score.costPenalty).toBe(0)
     expect(score.safetyPenalty).toBe(0)
-    expect(score.total).toBe(900) // 400 + 400 + 100 + 0 (efficiency = 0)
+    // The four allocations are 40% + 40% + 10% + 10% = 100% of maxScore, so a
+    // flawless run scores exactly maxScore. `efficiency` is reported but is not
+    // a fifth allocation — it is never summed into `total`, so it costs nothing.
+    expect(score.total).toBe(1000) // 400 time + 400 accuracy + 100 cost + 100 safety
     expect(score.rank).toBe('S')
   })
 
   it('awards full time score when finishing under par time', () => {
     const score = calculateScore(60, NO_PENALTIES, CONFIG)
     expect(score.time).toBe(400)
+  })
+
+  it('a flawless run scores exactly maxScore for any config', () => {
+    // Guards the weight table: if the allocations ever stop summing to 100%,
+    // a perfect run silently becomes unwinnable and this fails.
+    for (const maxScore of [1000, 5000]) {
+      const score = calculateScore(180, NO_PENALTIES, { ...CONFIG, maxScore })
+      expect(score.total).toBe(maxScore)
+      expect(score.rank).toBe('S')
+    }
   })
 })
 

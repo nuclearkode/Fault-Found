@@ -78,6 +78,13 @@ const CARTON_FILL_H = 0.252
 const SPOUT_Y = 1.285
 const SPOUT_R = 0.055
 
+// ── Level sensor sight line ─────────────────────────────────────────────────
+// A diffuse sensor bracketed above and to one side, aimed down past the edge of
+// the chute into the box mouth. Both points are cell-local and must match the
+// head's placement in the GLB — see LEVEL_SENSOR in silo_conveyor_cell.blend.
+const LEVEL_EYE = new THREE.Vector3(0.300, 1.600, 0)
+const LEVEL_AIM = new THREE.Vector3(0.100, 1.200, 0)
+
 /** Grains in the stream. Trivial for the GPU; the cost is the CPU update. */
 const GRAINS = 130
 const GRAIN_GRAVITY = 5.2
@@ -173,6 +180,21 @@ interface Cell {
   selector: THREE.Object3D | null
   padlock: THREE.Object3D[]
   /**
+   * The level sensor's measuring beam, and its status LED.
+   *
+   * Built here rather than in the GLB because its LENGTH is the measurement: it
+   * runs from the sensor head down to whatever surface is under it, so it visibly
+   * shortens as the carton fills. A fixed-length mesh could not do that.
+   *
+   * This replaced a through-beam pair straddling the mouth of the box, which was
+   * simply wrong engineering. A beam across an OPAQUE carton cannot tell you how
+   * full it is — the walls break it as the box arrives and the product inside is
+   * invisible to it. Level is a distance measurement: you look DOWN at the
+   * surface and see how far away it is, which is what this now does.
+   */
+  beam: THREE.Mesh | null
+  levelLeds: THREE.Mesh[]
+  /**
    * The product block inside each carton, parallel to `cartons`.
    *
    * Made here and parented to the carton, which is what makes a filled box carry
@@ -210,6 +232,7 @@ function collect(root: THREE.Object3D): Cell {
   let handle: THREE.Object3D | null = null
   let isolator: THREE.Object3D | null = null
   let selector: THREE.Object3D | null = null
+  const levelLeds: THREE.Mesh[] = []
   root.traverse((o) => {
     if (o.name.startsWith('Carton_')) cartons.push(o)
     else if (o.name === 'FillValve_Gate') gate = o
@@ -220,6 +243,10 @@ function collect(root: THREE.Object3D): Cell {
     else if (o.name.startsWith('PLC_Handle')) handle = o
     else if (o.name === 'PLC_Isolator_Handle') isolator = o
     else if (o.name === 'SEL_Knob') selector = o
+    else if (o.name.startsWith('LEVEL_LED_') && o instanceof THREE.Mesh) {
+      o.material = (o.material as THREE.Material).clone()
+      levelLeds.push(o)
+    }
     else if (o.name.startsWith('LOTO_')) padlock.push(o)
     else if (o.name.startsWith('Lamp_') && o instanceof THREE.Mesh) {
       // clone() shares materials with the cached GLTF — copy before mutating
@@ -257,6 +284,23 @@ function collect(root: THREE.Object3D): Cell {
   for (let i = 0; i < GRAINS; i++) pos[i * 3 + 1] = -999   // parked out of sight
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  // ── The level sensor's measuring beam ──
+  // A unit-length cylinder built along +Y and re-scaled each frame, so one mesh
+  // can be any length. Oriented once, here, because the sight line never moves.
+  const beamGeo = new THREE.CylinderGeometry(0.0035, 0.0035, 1, 6)
+  beamGeo.translate(0, -0.5, 0)   // origin at the TOP, so scale.y grows downward
+  const beam = new THREE.Mesh(beamGeo, new THREE.MeshStandardMaterial({
+    color: '#ff2a18', emissive: '#ff2a18', emissiveIntensity: 5,
+    transparent: true, opacity: 0.85, depthWrite: false,
+  }))
+  beam.name = 'level_beam'
+  beam.position.copy(LEVEL_EYE)
+  beam.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    LEVEL_AIM.clone().sub(LEVEL_EYE).normalize(),
+  )
+  root.add(beam)
+
   const grains = new THREE.Points(geo, new THREE.PointsMaterial({
     color: GRAIN_COLOUR, size: 0.018, sizeAttenuation: true,
     transparent: true, opacity: 0.95, depthWrite: false,
@@ -270,6 +314,37 @@ function collect(root: THREE.Object3D): Cell {
     handleOffset: localCentre(handle),
     product, fill: cartons.map(() => 0), grains, grainV,
     home: cartons.map((c) => c.position.x),
+    beam, levelLeds,
+  }
+}
+
+/**
+ * Show what the level photo-eye is doing.
+ *
+ * `made` is the state of I:1/04 as the PROCESSOR sees it, so a faulted sensor
+ * shows its faulted state here too — in S06 the beam is dark and the LEDs are on
+ * with nothing anywhere near the box, which is precisely the tell that scenario
+ * is built around. Reading the physical fill level instead would hide the fault.
+ */
+function driveLevelSensor(cell: Cell, made: boolean, surfaceY: number) {
+  if (cell.beam) {
+    // The beam reaches the first thing under it. `surfaceY` is the top of the
+    // product in the carton below, or the belt when there is no carton — so the
+    // visible line gets shorter as the box fills, which IS the measurement the
+    // sensor is making. That is the whole reason it is drawn.
+    const dy = LEVEL_EYE.y - surfaceY
+    const along = LEVEL_AIM.clone().sub(LEVEL_EYE)
+    const reach = dy > 0 ? (dy / -along.y) * along.length() : 0.02
+    cell.beam.scale.set(1, Math.max(0.02, reach), 1)
+    cell.beam.visible = true
+    const m = cell.beam.material as THREE.MeshStandardMaterial
+    // Brighter once it has something to see — a diffuse sensor is returning
+    // signal, not losing it, which is the opposite of the through-beam it replaced.
+    m.emissiveIntensity = made ? 8.0 : 4.0
+  }
+  for (const led of cell.levelLeds) {
+    const m = led.material as THREE.MeshStandardMaterial
+    m.emissiveIntensity = made ? 9.0 : 1.2
   }
 }
 
@@ -410,6 +485,7 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
   const phys = useRef({ level: 0, estop: false, prevProx: false, doorOpen: false, mode: 0 })
   const aimed = useRef<number | null>(null)
   const aimedLabel = useRef<string | null>(null)
+  const panelLamp = useRef<THREE.PointLight>(null)
   const { camera } = useThree()
 
   // A new job gets a machine in the state it was found in. The rig does not
@@ -572,6 +648,10 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
     }
 
     driveGate(c, valveCmd, dt)
+    // The LAMP state comes from the tag (so a faulted sensor still lies to you,
+    // which is the point of S04 and S06); the beam LENGTH comes from the real
+    // surface, because that is physics and the fault does not change it.
+    driveLevelSensor(c, on(tags['I:1/04']?.value), landing)
     setLamp(c, 'Lamp_RUN', on(tags['O:2/02']?.value))
     setLamp(c, 'Lamp_FILL', on(tags['O:2/03']?.value))
     setLamp(c, 'Lamp_FULL', on(tags['O:2/04']?.value))
@@ -584,6 +664,12 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
       // .y — the hinge is vertical, and vertical is Y in glTF space
       c.door.rotation.y = THREE.MathUtils.lerp(
         c.door.rotation.y, phys.current.doorOpen ? DOOR_OPEN : 0, 6 * dt)
+    }
+    // Panel lamp follows the door, like a real door-switch lamp — and fades with
+    // the leaf rather than snapping, so it reads as the door letting light in.
+    if (panelLamp.current) {
+      panelLamp.current.intensity = THREE.MathUtils.damp(
+        panelLamp.current.intensity, phys.current.doorOpen ? 1.6 : 0, 6, dt)
     }
     const locked = useGameStore.getState().lotoApplied
     if (c.isolator) {
@@ -667,6 +753,28 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
       rotation={[0, (rotation * Math.PI) / 180, 0]}
     >
       <primitive object={cellScene} castShadow receiveShadow />
+      {/*
+        Panel light.
+
+        The switchgear inside the cabinet was all present and all invisible: a
+        steel box 300 mm deep with one small opening catches almost no room light,
+        so opening the door revealed a black hole. That is physically correct and
+        completely useless — you cannot diagnose what you cannot see, and this is
+        the enclosure the whole lock-off procedure happens in.
+
+        Real panels solve it the same way, with a lamp on the door switch. Short
+        range and low intensity so it lights the backplate and the terminals
+        without leaking out and washing the cell.
+      */}
+      <pointLight
+        name="panel_lamp"
+        ref={panelLamp}
+        position={[-3.10, 1.15, 1.30]}
+        color="#dfe6f0"
+        intensity={0}
+        distance={1.1}
+        decay={2}
+      />
       {/* The I/O schedule, on the same whiteboard as the SFC. Inside this group
           so it inherits the rig's placement and uses cell-local coordinates. */}
       <TagTable />

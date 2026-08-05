@@ -48,16 +48,16 @@ export function calculateScore(
   const accuracyScore = Math.max(0, Math.round(accuracyAllocation - accuracyDeductions))
 
   // --- Cost score (10% of max) ---
+  // costPenalty reports the full notional cost incurred, which may exceed the
+  // 10% allocation; costScore is what actually survives, floored at 0.
   const costAllocation = maxScore * 0.1
-  const costDeductions = penalties.unnecessaryPartOrder * config.penalties.unnecessaryPartOrder
-  const costScore = Math.max(0, Math.round(costAllocation - costDeductions))
   const costPenalty = penalties.unnecessaryPartOrder * config.penalties.unnecessaryPartOrder
+  const costScore = Math.max(0, Math.round(costAllocation - costPenalty))
 
   // --- Safety score (10% of max) ---
   const safetyAllocation = maxScore * 0.1
-  const safetyDeductions = penalties.skipLOTO * config.penalties.skipLOTO
-  const safetyScore = Math.max(0, Math.round(safetyAllocation - safetyDeductions))
   const safetyPenalty = penalties.skipLOTO * config.penalties.skipLOTO
+  const safetyScore = Math.max(0, Math.round(safetyAllocation - safetyPenalty))
 
   // --- Total & rank ---
   const total = timeScore + accuracyScore + costScore + safetyScore

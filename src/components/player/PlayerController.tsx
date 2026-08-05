@@ -18,6 +18,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls } from '@react-three/drei'
+import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib'
 import { RigidBody, CapsuleCollider } from '@react-three/rapier'
 import type { RapierRigidBody } from '@react-three/rapier'
 import * as THREE from 'three'
@@ -41,6 +42,29 @@ const STRIDE = 1.9
 /** Where a run begins. Also where a new one puts you back. */
 const SPAWN: [number, number, number] = [0, 2, 7]
 
+// ── Right-click to look closer ──────────────────────────────────────────────
+/** The Canvas's own camera fov. Anything else here and the first frame jumps. */
+const BASE_FOV = 75
+/**
+ * Zoomed field of view.
+ *
+ * 48 rather than something dramatic: this is a technician leaning in to read a
+ * label or check whether a sensor LED is lit, not a rifle scope. It is roughly a
+ * 1.6x magnification, which is enough to read the terminal numbers and the tag
+ * addresses on the schedule board from where you would actually stand.
+ */
+const ZOOM_FOV = 48
+/** Damping rate. Fast enough to feel responsive, slow enough not to lurch. */
+const ZOOM_RATE = 14
+/**
+ * Mouse sensitivity while zoomed, as a fraction of normal.
+ *
+ * Not optional polish. Narrowing the fov without slowing the mouse makes the
+ * view twitchy exactly when the player is trying to hold it steady on something
+ * small — the zoom would be actively harder to use than no zoom at all.
+ */
+const ZOOM_POINTER_SPEED = 0.45
+
 // Pre-allocated — never new in useFrame
 const _dir = new THREE.Vector3()
 const _front = new THREE.Vector3()
@@ -51,7 +75,9 @@ const keysDown = { w: false, s: false, a: false, d: false }
 
 export function PlayerController() {
   const rigidBodyRef = useRef<RapierRigidBody>(null)
-  const controlsRef = useRef<any>(null)
+  // Typed, not `any`. This is read for `isLocked` and now written for
+  // `pointerSpeed`, and an untyped handle would have hidden a rename in either.
+  const controlsRef = useRef<PointerLockControlsImpl | null>(null)
   const { camera } = useThree()
   const started = useSettingsStore(s => s.started)
 
@@ -113,6 +139,33 @@ export function PlayerController() {
     useSettingsStore.getState().openOverlay('pause')
   }, [])
 
+  // ── Right mouse button: hold to zoom ──────────────────────────────────────
+  // Tracked in a ref rather than state — it changes on every press and nothing
+  // renders from it, so a re-render would be pure waste.
+  const zooming = useRef(false)
+  const fov = useRef(BASE_FOV)
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (e.button === 2) zooming.current = true }
+    const up = (e: MouseEvent) => { if (e.button === 2) zooming.current = false }
+    // Under pointer lock the browser suppresses this anyway, but the player is
+    // NOT locked on the title screen or over an overlay, and a context menu
+    // popping up there would be a mess.
+    const menu = (e: Event) => e.preventDefault()
+    // `blur` matters: release the button outside the window and the mouseup
+    // never arrives, leaving the view stuck zoomed with no way to clear it.
+    const blur = () => { zooming.current = false }
+    window.addEventListener('mousedown', down)
+    window.addEventListener('mouseup', up)
+    window.addEventListener('contextmenu', menu)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('mousedown', down)
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('contextmenu', menu)
+      window.removeEventListener('blur', blur)
+    }
+  }, [])
+
   // Losing world focus must drop the keys AND the momentum. Physics is NOT
   // paused under the laptop, so a player who opened it mid-stride keeps sliding.
   useEffect(() => useSettingsStore.subscribe(
@@ -150,6 +203,32 @@ export function PlayerController() {
   // Movement — only when pointer is locked AND not paused AND game has started
   const stride = useRef(0)
   useFrame((_, delta) => {
+    // ── Zoom ────────────────────────────────────────────────────────────────
+    // Runs BEFORE the movement guard on purpose: letting go of the mouse while
+    // an overlay is open must still ease the view back out, otherwise you close
+    // the laptop and find yourself zoomed with nothing holding the button.
+    const dt = Math.min(delta, 0.05)
+    const cam = camera as THREE.PerspectiveCamera
+    if (cam.isPerspectiveCamera) {
+      const want = zooming.current && uiFocus() === 'world' ? ZOOM_FOV : BASE_FOV
+      const next = THREE.MathUtils.damp(fov.current, want, ZOOM_RATE, dt)
+      if (Math.abs(next - fov.current) > 0.002) {
+        fov.current = next
+        // setFocalLength rather than writing `.fov` directly: it is a method, so
+        // it satisfies the compiler's no-mutating-hook-values rule, and it calls
+        // updateProjectionMatrix itself. Film height depends on aspect, so it is
+        // read every frame rather than cached — resizing the window otherwise
+        // silently changes the zoom factor.
+        const filmH = cam.getFilmHeight()
+        cam.setFocalLength((0.5 * filmH) / Math.tan(THREE.MathUtils.degToRad(next) / 2))
+        // Slow the mouse in proportion to how far in we are, so the transition
+        // is as smooth as the view.
+        const k = (BASE_FOV - next) / (BASE_FOV - ZOOM_FOV)
+        const c = controlsRef.current
+        if (c) c.pointerSpeed = 1 - k * (1 - ZOOM_POINTER_SPEED)
+      }
+    }
+
     // `isLocked` is doing the overlay check for free: under the laptop the world
     // still steps but the pointer is released, so the player stands still while
     // the machine keeps running. No extra flag needed.
@@ -171,7 +250,7 @@ export function PlayerController() {
     // Footsteps, measured off what the player ACTUALLY moved rather than what
     // was commanded — walk into a wall and the steps stop, which is the whole
     // point of reading it back from the physics body.
-    const moved = Math.hypot(vel.x, vel.z) * Math.min(delta, 0.05)
+    const moved = Math.hypot(vel.x, vel.z) * dt
     if (moved > 1e-4) {
       stride.current += moved
       if (stride.current >= STRIDE) {

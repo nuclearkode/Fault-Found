@@ -93,37 +93,16 @@ function Panel() {
           {rig?.name ?? 'Unknown cell'}
         </div>
         <div style={{
-          fontSize: '0.8rem', color: '#8b93a1', marginBottom: '1.3rem',
+          fontSize: '0.8rem', color: '#8b93a1', marginBottom: '1.6rem',
         }}>
           {rig?.purpose}
         </div>
 
-        {/* The machine, in a neutral technical voice. Deliberately a different
-            register AND a different typeface weight/colour from the account
-            below — two prose blocks in the same monospace stack read as one
-            voice if they only differ in wording. */}
-        {rig && (
-          <>
-            <div style={{
-              fontSize: '0.6rem', letterSpacing: '0.18em', color: '#8b93a1',
-              marginBottom: '0.55rem',
-            }}>
-              HOW THE CELL WORKS
-            </div>
-            <div style={{
-              fontSize: '0.8rem', lineHeight: 1.7, color: '#9aa3b0',
-              marginBottom: '0.9rem',
-            }}>
-              {rig.sequence}
-            </div>
-            <div style={{
-              fontSize: '0.8rem', lineHeight: 1.7, color: '#9aa3b0',
-              marginBottom: '1.6rem',
-            }}>
-              {rig.panel}
-            </div>
-          </>
-        )}
+        {/* How the cell works, what each sensor does and how to read the boards
+            all used to sit here, and it made the call-out screen a wall of text
+            you skim once and never again. It is reference material, so it lives
+            in the manual — [B] — where it can be re-read mid-shift. What stays
+            is the one thing that is specific to THIS call: what was witnessed. */}
 
         <div style={{
           fontSize: '0.6rem', letterSpacing: '0.18em', color: '#8b93a1',
@@ -153,7 +132,7 @@ function Panel() {
             fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)',
             letterSpacing: '0.08em',
           }}>
-            {mmss(timeLimit)} on the clock · WASD to move · E to interact
+            {mmss(timeLimit)} on the clock · WASD move · E interact · [B] manual · [L] laptop
           </span>
         </div>
       </div>
