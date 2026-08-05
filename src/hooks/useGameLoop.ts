@@ -58,12 +58,22 @@ export function useGameLoop() {
     // This is the point of locking off, and without it the lock-out was theatre —
     // the padlock appeared, and the line carried on running and could be started
     // again with a fingertip while somebody had their hands inside the guard.
+    //
+    // Matched on BOTH addressing conventions. 'O' is Allen-Bradley/LogixPro,
+    // which is what S02-S06 use ('O:2/00'); 'Q' is Siemens, which is what the
+    // MPS-derived stations use ('Q4.0'). A startsWith('O') test silently let
+    // every Q-addressed output stay energised with the padlock on — the spindle
+    // would keep turning while the player reached into the drilling module,
+    // which is precisely the thing lock-out exists to prevent, and it would have
+    // failed open rather than closed.
+    const isOutput = (id: string): boolean => id.startsWith('O') || id.startsWith('Q')
+
     if (lotoApplied) {
-      const live = tagArray.filter(t => t.id.startsWith('O') && t.value !== false)
+      const live = tagArray.filter(t => isOutput(t.id) && t.value !== false)
       if (live.length > 0) {
         const dead: Record<string, IOTag> = {}
         for (const t of tagArray) {
-          dead[t.id] = t.id.startsWith('O') ? { ...t, value: false } : t
+          dead[t.id] = isOutput(t.id) ? { ...t, value: false } : t
         }
         setTags(dead)
       }
