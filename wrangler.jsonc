@@ -1,0 +1,36 @@
+{
+	// Assets-only Worker. Its mere presence on disk is what stops
+	// `wrangler deploy` from running framework auto-detection and shelling out
+	// to `opennextjs-cloudflare build` — which cannot work against
+	// `output: 'export'` because there is no server build to bundle.
+	//
+	// Deliberately NO "main": an assets-only Worker has no script, so requests
+	// are terminated by the asset router with zero Worker invocations.
+	// Deliberately NO "assets.binding": wrangler hard-errors with
+	// "Cannot use assets with a binding in an assets-only Worker."
+
+	"$schema": "node_modules/wrangler/config-schema.json",
+
+	// MUST equal the Worker name in the dashboard or Workers Builds fails.
+	"name": "fault-found",
+
+	"compatibility_date": "2026-08-05",
+
+	"assets": {
+		"directory": "./out",
+
+		// next.config.ts sets trailingSlash: true, so every route is exported as
+		// a folder index (out/index.html, out/_not-found/index.html). Under
+		// auto-trailing-slash the asset router serves "/" and "/foo/" with a
+		// straight 200 and 307s "/foo" -> "/foo/", which is exactly the URL form
+		// Next already links to. Zero redirects on real navigation, no loop.
+		// Non-HTML paths (.txt/.js/.glb/.mp3/.wasm) hit the exact-match branch
+		// and are never rewritten.
+		"html_handling": "auto-trailing-slash",
+
+		// out/404.html exists; serve it with a real 404 status on unknown paths.
+		// NOT "single-page-application" — this is not a client-routed SPA, and
+		// that setting would return 200 + index.html for every bogus URL.
+		"not_found_handling": "404-page"
+	}
+}

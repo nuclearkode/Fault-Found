@@ -1,0 +1,31 @@
+# Cloudflare Workers static-assets header rules.
+# Lives in public/ so `next build` (output: 'export') copies it to out/_headers,
+# which is the assets directory wrangler uploads. Cloudflare does not serve this
+# file itself. Limits: 100 rules, 2000 chars per line.
+#
+# Cloudflare's default for every asset is
+#   Cache-Control: public, max-age=0, must-revalidate
+# i.e. a conditional revalidation round trip per asset per page load. Fine for
+# HTML, wasteful for ~12 MB of GLB/MP3/WASM this game loads on every session.
+
+# Turbopack fingerprints every filename under here, so the URL changes whenever
+# the content does. Safe to cache forever and never revalidate.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Draco decoder is pinned to the three.js version, not to game content.
+/draco/*
+  Cache-Control: public, max-age=2592000
+
+# Files below come from public/ and are NOT content-hashed, so the URL stays the
+# same when the asset changes. Keep the TTL short enough that a redeploy is
+# picked up within an hour; stale-while-revalidate keeps reloads instant.
+# If you ever adopt hashed model/audio filenames, raise these to immutable.
+/models/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+/audio/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+/images/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400

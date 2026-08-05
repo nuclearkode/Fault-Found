@@ -14,6 +14,12 @@
  * and can be overridden by the user in the pause menu.
  */
 
+// MUST be first. Points drei's Draco decoder at /draco/ instead of gstatic.com,
+// and only works if it is evaluated before the components below — several of
+// them call useGLTF.preload() at module scope, which builds the loader on the
+// spot. See src/three/dracoPath.ts.
+import '@/three/dracoPath'
+
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Physics, useRapier } from '@react-three/rapier'

@@ -47,3 +47,7 @@ next-env.d.ts
 # Blender auto-backups
 *.blend1
 out/
+
+# cloudflare
+/.wrangler/
+/.open-next/
