@@ -97,7 +97,13 @@ function Panel() {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 140,
-      display: 'flex', alignItems: 'center',
+      // `alignItems: center` was the bug the overflowY below was added to fix
+      // and could not: a centred flex item taller than its container overflows
+      // in BOTH directions, and the top overflow is unreachable — you cannot
+      // scroll up past a flex container's start edge. On a 720p laptop that
+      // silently ate the TAKE THE SHIFT button. `auto` margins centre it while
+      // it fits and collapse to a normal top-aligned scroll when it does not.
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start',
       // Left-aligned so the machine stays visible on the right of frame
       paddingLeft: 'min(6vw, 5rem)',
       paddingRight: '1rem',
@@ -111,7 +117,7 @@ function Panel() {
       opacity: shown ? 1 : 0,
       transition: 'opacity 700ms ease',
     }}>
-      <div style={{ maxWidth: '560px', width: '100%' }}>
+      <div style={{ maxWidth: '560px', width: '100%', marginTop: 'auto', marginBottom: 'auto' }}>
         <div style={{
           fontSize: '0.62rem', letterSpacing: '0.22em', color: RED,
           marginBottom: '0.5rem',
