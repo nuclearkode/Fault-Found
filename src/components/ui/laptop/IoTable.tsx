@@ -83,14 +83,18 @@ export function IoTable() {
 
   return (
     <div className="ff-io">
+      <div className="ff-io-head">
+        Data Files — I/O image, read live from the processor
+        <span className="ff-io-count">{rows.length} addresses</span>
+      </div>
       <table className="ff-io-table">
         <thead>
           <tr>
-            <th className="ff-io-addr">ADDRESS</th>
-            <th>SYMBOL</th>
-            <th className="ff-io-type">TYPE</th>
-            <th className="ff-io-val">VALUE</th>
-            <th>DESCRIPTION</th>
+            <th className="ff-io-addr">Address</th>
+            <th>Symbol</th>
+            <th className="ff-io-type">Type</th>
+            <th className="ff-io-val">Value</th>
+            <th>Description</th>
           </tr>
         </thead>
         <tbody ref={bodyRef}>
@@ -108,7 +112,7 @@ export function IoTable() {
           {rows.length === 0 && (
             <tr>
               <td className="ff-io-desc" colSpan={5}>
-                NO I/O IMAGE — PROCESSOR NOT CONNECTED
+                No I/O image — the processor is not connected.
               </td>
             </tr>
           )}

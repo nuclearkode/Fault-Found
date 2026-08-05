@@ -13,28 +13,27 @@
  *    per PROGRAM change, and power flow is painted onto pre-indexed SVG elements
  *    from a rAF-coalesced store subscription.
  *
- * 2. EDITS GO TO A DRAFT, NOT TO THE PROCESSOR. Every operation here produces a
- *    new tree via the pure ops in `@/engine/ladder` and hands it to
- *    `laptopStore.setDraft`. `gameStore.rungs` — what the scan cycle is actually
- *    executing on the live machine — changes only when the player presses
- *    DOWNLOAD TO PLC.
+ * 2. EDITS GO TO A DRAFT, NOT TO THE PROCESSOR. Every operation here goes
+ *    through `laptopStore`, which runs the pure ops in `@/engine/ladder` and
+ *    keeps the result as a draft condition string. `gameStore.rungs` — what the
+ *    scan cycle is actually executing on the live machine — changes only when
+ *    the player presses DOWNLOAD TO PLC.
+ *
+ * The look is a light, dense, mouse-driven ladder editor: white canvas, blue
+ * instructions, green power. Colour is CSS only (see the palette in Laptop.tsx);
+ * the paint loop writes a single `data-s` character and the cascade does the
+ * rest.
  */
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGameStore } from '@/stores/gameStore'
 import { useLaptopStore } from '@/stores/laptopStore'
 import {
-  contact,
   equivalent,
   evaluateFlow,
-  insertParallel,
-  insertSeries,
   layout,
-  nodeAt,
   parseCondition,
-  removeAt,
   setContactTag,
-  toggleContactType,
 } from '@/engine/ladder'
 import type {
   ContactNode,
@@ -46,18 +45,40 @@ import type { Rung } from '@/engine/types'
 
 // --- Geometry -----------------------------------------------------------
 
-const CELL_W = 128
-const CELL_H = 58
+const CELL_W = 132
+const CELL_H = 84
 const BAR = 9      // half the gap between a contact's two bars
-const BAR_H = 14   // half a contact bar's height
-const RAIL_X = 18
-const FIRST_X = 46 // left edge of column 0
-const ROW0_Y = 36  // centre line of row 0 — the main rung line
-const COIL_W = 168
+const BAR_H = 13   // half a contact bar's height
+const RAIL_X = 22
+const FIRST_X = 64 // left edge of column 0 — the gap holds the "insert first" slot
+const ROW0_Y = 58  // centre line of row 0 — the main rung line
+const COIL_W = 184
+
+/** Text rows above a contact's centre line: symbol chip, address word, address bit. */
+const CHIP_Y = -50
+const CHIP_H = 12
+const WORD_Y = -30
+const BIT_Y = -18
 
 const colLeft = (c: number) => FIRST_X + c * CELL_W
 const colRight = (c: number) => FIRST_X + (c + 1) * CELL_W
 const rowY = (r: number) => ROW0_Y + r * CELL_H
+
+/** Rough monospace advance at font-size 9, for sizing the symbol chip. */
+const chipWidth = (text: string) => Math.max(26, text.length * 5.4 + 10)
+
+/**
+ * `I:1/00` -> `I:1` above the contact and `00` below it; `I0.0` -> `I0` / `0`.
+ * That two-line silhouette is the single most recognisable thing about an
+ * RSLogix rung, and it falls out of one string split.
+ */
+function splitAddress(addr: string): [string, string] {
+  const slash = addr.lastIndexOf('/')
+  if (slash > 0) return [addr.slice(0, slash), addr.slice(slash + 1)]
+  const dot = addr.lastIndexOf('.')
+  if (dot > 0) return [addr.slice(0, dot), addr.slice(dot + 1)]
+  return [addr, '']
+}
 
 interface Seg {
   x1: number
@@ -169,12 +190,12 @@ function buildGeometry(tree: LadderNode): Geometry {
   const rootN = nid(tree)
   const lastX = colRight(root.c1)
   const width = lastX + COIL_W
-  const railRight = width - 20
+  const railRight = width - 22
   const coilCx = (lastX + railRight) / 2
 
   segs.push({ x1: RAIL_X, y1: rowY(0), x2: colLeft(0), y2: rowY(0), n: rootN, hot: false })
-  segs.push({ x1: lastX, y1: rowY(0), x2: coilCx - 15, y2: rowY(0), n: rootN, hot: true })
-  segs.push({ x1: coilCx + 15, y1: rowY(0), x2: railRight, y2: rowY(0), n: rootN, hot: true })
+  segs.push({ x1: lastX, y1: rowY(0), x2: coilCx - 16, y2: rowY(0), n: rootN, hot: true })
+  segs.push({ x1: coilCx + 16, y1: rowY(0), x2: railRight, y2: rowY(0), n: rootN, hot: true })
 
   return {
     nodes,
@@ -182,6 +203,7 @@ function buildGeometry(tree: LadderNode): Geometry {
     contacts,
     coil: { cx: coilCx, cy: rowY(0) },
     width,
+    // Deep enough for the branch drop slot that hangs under the bottom row.
     height: rowY(lay.rows - 1) + 38,
     cellCount: lay.cells.length,
   }
@@ -228,26 +250,122 @@ function buildViews(
   })
 }
 
+// --- Address editor -----------------------------------------------------
+
+interface TagRow { id: string; label: string }
+
+const ADDRESS_KEYWORDS = new Set(['AND', 'OR', 'NOT'])
+
+/** Would this text survive a round trip through the condition-string dialect? */
+function usableAddress(text: string): boolean {
+  const t = text.trim()
+  if (t.length === 0) return false
+  if (/[\s()]/.test(t)) return false
+  return !ADDRESS_KEYWORDS.has(t.toUpperCase())
+}
+
 /**
- * Where the selection should land after an edit.
+ * The inline operand editor — double-click an address and type.
  *
- * Canonicalisation can turn the node a path pointed at into a group — inserting
- * a parallel around a contact does exactly that — so a path is re-settled onto
- * the first contact at or below it rather than left dangling.
+ * It filters the processor's real I/O image on address AND symbol, because a
+ * technician looking for the pusher-retracted proximity switch knows the word
+ * "retract" and not `I:1/03`. Typing an address the image has never heard of is
+ * still allowed, and still flagged: writing a rung against a tag that doesn't
+ * exist is a real mistake worth being able to make.
  */
-function settlePath(root: LadderNode, path: LadderPath): LadderPath | null {
-  let node: LadderNode
-  try {
-    node = nodeAt(root, path)
-  } catch {
-    return null
+function AddressEditor({
+  x,
+  y,
+  current,
+  tags,
+  onPick,
+  onClose,
+}: {
+  x: number
+  y: number
+  current: string
+  tags: TagRow[]
+  onPick: (id: string) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const q = query.trim().toLowerCase()
+  const matches = tags.filter(
+    (t) =>
+      q.length === 0 ||
+      t.id.toLowerCase().includes(q) ||
+      t.label.toLowerCase().includes(q),
+  )
+  const exact = tags.some((t) => t.id.toLowerCase() === q)
+  const freeform = !exact && usableAddress(query) ? query.trim() : null
+
+  const commit = (): void => {
+    const first = matches[0]
+    if (first !== undefined) return onPick(first.id)
+    if (freeform !== null) onPick(freeform)
   }
-  const settled = [...path]
-  while (node.kind !== 'contact') {
-    node = node.children[0]
-    settled.push(0)
-  }
-  return settled
+
+  return (
+    <>
+      {/* Anything outside the popover dismisses it, including the 3D world's
+          own overlay — the laptop already swallows those clicks. */}
+      <div className="ff-pop-scrim" onMouseDown={onClose} />
+      <div className="ff-pop" style={{ left: x, top: y }}>
+        <div className="ff-pop-head">Address · was {current}</div>
+        <input
+          ref={inputRef}
+          className="ff-pop-input"
+          value={query}
+          placeholder="filter address or symbol…"
+          spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            // Local to a text field only. keymap.ts ignores INPUT entirely, so
+            // no binding is being taken from it here.
+            if (e.key === 'Escape') {
+              e.stopPropagation()
+              onClose()
+            } else if (e.key === 'Enter') {
+              e.stopPropagation()
+              commit()
+            }
+          }}
+        />
+        <ul className="ff-pop-list">
+          {freeform !== null && (
+            <li>
+              <button type="button" className="ff-pop-row ff-pop-new" onClick={() => onPick(freeform)}>
+                <span className="ff-pop-id">{freeform}</span>
+                <span className="ff-pop-label">not in the I/O image</span>
+              </button>
+            </li>
+          )}
+          {matches.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                className={t.id === current ? 'ff-pop-row ff-pop-cur' : 'ff-pop-row'}
+                onClick={() => onPick(t.id)}
+              >
+                <span className="ff-pop-id">{t.id}</span>
+                <span className="ff-pop-label">{t.label}</span>
+              </button>
+            </li>
+          ))}
+          {matches.length === 0 && freeform === null && (
+            <li className="ff-pop-none">no matching address</li>
+          )}
+        </ul>
+      </div>
+    </>
+  )
 }
 
 // --- Component ----------------------------------------------------------
@@ -263,17 +381,22 @@ export function LadderView() {
   const drafts = useLaptopStore((s) => s.drafts)
   const selection = useLaptopStore((s) => s.selection)
   const select = useLaptopStore((s) => s.select)
-  const setDraft = useLaptopStore((s) => s.setDraft)
+  const armed = useLaptopStore((s) => s.armed)
+  const arm = useLaptopStore((s) => s.arm)
+  const editing = useLaptopStore((s) => s.editing)
+  const beginEdit = useLaptopStore((s) => s.beginEdit)
+  const applyOp = useLaptopStore((s) => s.applyOp)
+  const insertContact = useLaptopStore((s) => s.insertContact)
   const revert = useLaptopStore((s) => s.revert)
   const notice = useLaptopStore((s) => s.notice)
   const setNotice = useLaptopStore((s) => s.setNotice)
 
-  const labels = useMemo(() => {
+  const labels = useMemo<TagRow[]>(() => {
     const tags = useGameStore.getState().tags
     return tagKeys
       .split(',')
       .filter((id) => id.length > 0)
-      .map((id) => ({ id, label: tags[id]?.label ?? '', type: tags[id]?.type ?? 'BOOL' }))
+      .map((id) => ({ id, label: tags[id]?.label ?? '' }))
   }, [tagKeys])
 
   const labelOf = useMemo(() => {
@@ -340,7 +463,8 @@ export function LadderView() {
         if (t.isContact && node.kind === 'contact') {
           // Three states, and the middle one is the point of the whole display:
           // 2 = powered, 1 = the contact is MADE but nothing is feeding it,
-          // 0 = open. "Made but dead" is how a technician reads a rung.
+          // 0 = open. "Made but dead" is how a technician reads a rung, and it
+          // is the one thing this editor shows that a real one does not.
           const made = node.negated ? !get(node.tag) : get(node.tag)
           state = flow.hot.get(node) === true ? 2 : made ? 1 : 0
         } else {
@@ -369,277 +493,462 @@ export function LadderView() {
 
   // --- Editing ----------------------------------------------------------
 
+  /** The contact under the cursor, resolved against what is actually drawn. */
   const selected = useMemo(() => {
-    if (selection === null) return null
+    if (selection === null || selection.path === null) return null
     const view = views.find((v) => v.rung.id === selection.rungId)
     const geom = view?.geom
     if (view === undefined || geom === null || geom === undefined) return null
     const key = pathKey(selection.path)
     const shape = geom.contacts.find((c) => pathKey(c.path) === key)
     if (shape === undefined) return null
-    return { view, shape, geom }
+    return { view, shape }
   }, [selection, views])
 
-  const applyOp = (op: (root: LadderNode, path: LadderPath) => LadderNode): void => {
-    if (selected === null || selection === null) return
-    const root = selected.geom.nodes[0]
-    try {
-      const next = op(root, selection.path)
-      setDraft(selection.rungId, next)
-      const settled = settlePath(next, selection.path)
-      select(settled === null ? null : { rungId: selection.rungId, path: settled })
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e))
-    }
-  }
+  /** Display index (position in the program) of whatever the cursor is on. */
+  const selectedIndex = useMemo(() => {
+    if (selection === null) return null
+    const view = views.find((v) => v.rung.id === selection.rungId)
+    return view?.index ?? null
+  }, [selection, views])
 
-  const canDelete = selected !== null && selected.geom.cellCount > 1
+  const dropping = armed !== null
+
+  /**
+   * A drop point. `mode` decides which of the engine's insert ops runs, and the
+   * armed instruction decides what lands there — a branch reproduces the
+   * instruction it is branching around, which is the only default that always
+   * parses.
+   */
+  const drop = (
+    rungId: number,
+    path: LadderPath | null,
+    mode: 'series' | 'parallel' | 'start',
+    near: ContactNode,
+  ): void => {
+    if (armed === null) return
+    const negated = armed === 'BRANCH' ? near.negated : armed === 'XIO'
+    insertContact(rungId, path, mode, near.tag, negated)
+  }
 
   return (
     <div className="ff-ladder">
       <div className="ff-ladder-scroll" ref={surfaceRef}>
         {views.length === 0 && (
-          <div className="ff-empty">NO PROGRAM IN PROCESSOR — CONNECT TO A CELL</div>
+          <div className="ff-empty">No program in the processor — connect to a cell.</div>
         )}
 
-        {views.map((view) => (
-          <section className="ff-rung" key={view.rung.id}>
-            <header className="ff-rung-head">
-              <span className="ff-rung-no">
-                RUNG {String(view.index).padStart(3, '0')}
-              </span>
-              <span className="ff-rung-desc">{view.rung.description ?? ''}</span>
-              {view.edited && (
-                <span className={view.sameLogic ? 'ff-badge ff-badge-eq' : 'ff-badge'}>
-                  {view.sameLogic ? 'EDITED · SAME LOGIC' : 'EDITED'}
-                </span>
-              )}
-              {drafts[view.rung.id] !== undefined && (
-                <button className="ff-mini" onClick={() => revert(view.rung.id)}>
-                  REVERT
-                </button>
-              )}
-            </header>
+        {views.map((view) => {
+          const rungSelected =
+            selection !== null && selection.rungId === view.rung.id
+          const drafted = drafts[view.rung.id] !== undefined
+          const geom = view.geom
 
-            {view.geom === null ? (
-              <div className="ff-parse-error">
-                RUNG WILL NOT COMPILE — {view.error}
-              </div>
-            ) : (
-              <svg
-                className="ff-svg"
-                width={view.geom.width}
-                height={view.geom.height}
-                viewBox={`0 0 ${view.geom.width} ${view.geom.height}`}
-                role="img"
-                aria-label={`Rung ${view.index}: ${view.condition}`}
+          return (
+            <section
+              className={rungSelected ? 'ff-rung ff-rung-sel' : 'ff-rung'}
+              key={view.rung.id}
+            >
+              <button
+                type="button"
+                className={
+                  selection !== null &&
+                  selection.rungId === view.rung.id &&
+                  selection.path === null
+                    ? 'ff-gutter ff-gutter-on'
+                    : 'ff-gutter'
+                }
+                title="Select the whole rung"
+                onClick={() => select({ rungId: view.rung.id, path: null })}
               >
-                {/* power rails */}
-                <line
-                  className="ff-rail"
-                  x1={RAIL_X}
-                  y1={6}
-                  x2={RAIL_X}
-                  y2={view.geom.height - 6}
-                />
-                <line
-                  className="ff-rail"
-                  x1={view.geom.width - 20}
-                  y1={6}
-                  x2={view.geom.width - 20}
-                  y2={view.geom.height - 6}
-                />
+                <span className="ff-gutter-no">
+                  {String(view.index).padStart(4, '0')}
+                </span>
+                {drafted && (
+                  <span className="ff-zone" title="edit held in this terminal only">
+                    e
+                  </span>
+                )}
+              </button>
 
-                {view.geom.segs.map((s, i) => (
-                  <line
-                    key={i}
-                    className="ff-wire"
-                    data-r={view.index}
-                    data-n={s.n}
-                    data-f={s.hot ? '1' : '0'}
-                    data-s="0"
-                    x1={s.x1}
-                    y1={s.y1}
-                    x2={s.x2}
-                    y2={s.y2}
-                  />
-                ))}
+              <div className="ff-rungbody">
+                <div className="ff-rung-head">
+                  {view.rung.description !== undefined &&
+                    view.rung.description.length > 0 && (
+                      <span className="ff-comment">{view.rung.description}</span>
+                    )}
+                  {view.edited && (
+                    <span className={view.sameLogic ? 'ff-badge ff-badge-eq' : 'ff-badge'}>
+                      {view.sameLogic ? 'edited · same logic' : 'edited'}
+                    </span>
+                  )}
+                  {drafted && (
+                    <button
+                      type="button"
+                      className="ff-revert"
+                      onClick={() => revert(view.rung.id)}
+                    >
+                      Revert rung
+                    </button>
+                  )}
+                </div>
 
-                {view.geom.contacts.map((c) => {
-                  const isSelected =
-                    selection !== null &&
-                    selection.rungId === view.rung.id &&
-                    pathKey(selection.path) === pathKey(c.path)
-                  return (
-                    <g key={pathKey(c.path)} className="ff-contact">
-                      {isSelected && (
-                        <rect
-                          className="ff-sel"
-                          x={colLeft(c.col) + 8}
-                          y={c.cy - 26}
-                          width={CELL_W - 16}
-                          height={54}
-                          rx={3}
-                        />
-                      )}
-                      <text className="ff-addr" data-r={view.index} data-n={c.n} data-c="1" data-s="0" x={c.cx} y={c.cy - 20}>
-                        {c.node.tag}
-                      </text>
+                {geom === null ? (
+                  <div className="ff-parse-error">
+                    Rung will not compile — {view.error}
+                  </div>
+                ) : (
+                  <div className="ff-svgwrap">
+                    <svg
+                      className="ff-svg"
+                      width={geom.width}
+                      height={geom.height}
+                      viewBox={`0 0 ${geom.width} ${geom.height}`}
+                      role="img"
+                      aria-label={`Rung ${view.index}: ${view.condition}`}
+                    >
+                      {/* power rails */}
                       <line
-                        className="ff-bar"
-                        data-r={view.index}
-                        data-n={c.n}
-                        data-c="1"
-                        data-s="0"
-                        x1={c.cx - BAR}
-                        y1={c.cy - BAR_H}
-                        x2={c.cx - BAR}
-                        y2={c.cy + BAR_H}
+                        className="ff-rail"
+                        x1={RAIL_X}
+                        y1={8}
+                        x2={RAIL_X}
+                        y2={geom.height - 8}
                       />
                       <line
-                        className="ff-bar"
-                        data-r={view.index}
-                        data-n={c.n}
-                        data-c="1"
-                        data-s="0"
-                        x1={c.cx + BAR}
-                        y1={c.cy - BAR_H}
-                        x2={c.cx + BAR}
-                        y2={c.cy + BAR_H}
+                        className="ff-rail"
+                        x1={geom.width - 22}
+                        y1={8}
+                        x2={geom.width - 22}
+                        y2={geom.height - 8}
                       />
-                      {c.node.negated && (
+
+                      {geom.segs.map((s, i) => (
                         <line
-                          className="ff-bar"
+                          key={i}
+                          className="ff-wire"
                           data-r={view.index}
-                          data-n={c.n}
-                          data-c="1"
+                          data-n={s.n}
+                          data-f={s.hot ? '1' : '0'}
                           data-s="0"
-                          x1={c.cx - BAR - 2}
-                          y1={c.cy + BAR_H}
-                          x2={c.cx + BAR + 2}
-                          y2={c.cy - BAR_H}
+                          x1={s.x1}
+                          y1={s.y1}
+                          x2={s.x2}
+                          y2={s.y2}
+                        />
+                      ))}
+
+                      {geom.contacts.map((c) => {
+                        const isSelected =
+                          selection !== null &&
+                          selection.rungId === view.rung.id &&
+                          selection.path !== null &&
+                          pathKey(selection.path) === pathKey(c.path)
+                        const [word, bit] = splitAddress(c.node.tag)
+                        const symbol = labelOf[c.node.tag] ?? ''
+                        return (
+                          <g key={pathKey(c.path)} className="ff-contact">
+                            {isSelected && (
+                              <rect
+                                className="ff-sel"
+                                x={colLeft(c.col) + 6}
+                                y={c.cy + CHIP_Y - 3}
+                                width={CELL_W - 12}
+                                height={-CHIP_Y + BAR_H + 8}
+                                rx={2}
+                              />
+                            )}
+                            {symbol.length > 0 && (
+                              <>
+                                <rect
+                                  className="ff-chip"
+                                  x={c.cx - chipWidth(symbol) / 2}
+                                  y={c.cy + CHIP_Y}
+                                  width={chipWidth(symbol)}
+                                  height={CHIP_H}
+                                  rx={1}
+                                />
+                                <text className="ff-chip-t" x={c.cx} y={c.cy + CHIP_Y + 9}>
+                                  {symbol}
+                                </text>
+                              </>
+                            )}
+                            <text className="ff-addr" x={c.cx} y={c.cy + WORD_Y}>
+                              {word}
+                            </text>
+                            {bit.length > 0 && (
+                              <text className="ff-addr" x={c.cx} y={c.cy + BIT_Y}>
+                                {bit}
+                              </text>
+                            )}
+                            <line
+                              className="ff-bar"
+                              data-r={view.index}
+                              data-n={c.n}
+                              data-c="1"
+                              data-s="0"
+                              x1={c.cx - BAR}
+                              y1={c.cy - BAR_H}
+                              x2={c.cx - BAR}
+                              y2={c.cy + BAR_H}
+                            />
+                            <line
+                              className="ff-bar"
+                              data-r={view.index}
+                              data-n={c.n}
+                              data-c="1"
+                              data-s="0"
+                              x1={c.cx + BAR}
+                              y1={c.cy - BAR_H}
+                              x2={c.cx + BAR}
+                              y2={c.cy + BAR_H}
+                            />
+                            {c.node.negated && (
+                              <line
+                                className="ff-bar"
+                                data-r={view.index}
+                                data-n={c.n}
+                                data-c="1"
+                                data-s="0"
+                                x1={c.cx - BAR - 2}
+                                y1={c.cy + BAR_H}
+                                x2={c.cx + BAR + 2}
+                                y2={c.cy - BAR_H}
+                              />
+                            )}
+                            <rect
+                              className="ff-hit"
+                              x={colLeft(c.col) + 6}
+                              y={c.cy + CHIP_Y - 3}
+                              width={CELL_W - 12}
+                              height={-CHIP_Y + BAR_H + 8}
+                              onClick={() => {
+                                if (armed === null) {
+                                  select({ rungId: view.rung.id, path: c.path })
+                                } else {
+                                  drop(
+                                    view.rung.id,
+                                    c.path,
+                                    armed === 'BRANCH' ? 'parallel' : 'series',
+                                    c.node,
+                                  )
+                                }
+                              }}
+                              onDoubleClick={() => {
+                                if (armed === null) {
+                                  beginEdit({ rungId: view.rung.id, path: c.path })
+                                }
+                              }}
+                            >
+                              <title>
+                                {armed === null
+                                  ? `${c.node.tag} — click to select, double-click to change the address`
+                                  : `insert ${armed} here`}
+                              </title>
+                            </rect>
+                          </g>
+                        )
+                      })}
+
+                      {/* drop points, only while an instruction is armed */}
+                      {dropping && geom.contacts.length > 0 && armed !== 'BRANCH' && (
+                        <g
+                          className="ff-slot"
+                          onClick={() =>
+                            drop(view.rung.id, null, 'start', geom.contacts[0].node)
+                          }
+                        >
+                          <rect
+                            x={(RAIL_X + colLeft(0)) / 2 - 9}
+                            y={rowY(0) - 9}
+                            width={18}
+                            height={18}
+                            rx={2}
+                          />
+                          <text x={(RAIL_X + colLeft(0)) / 2} y={rowY(0) + 4}>
+                            +
+                          </text>
+                          <title>insert first on this rung</title>
+                        </g>
+                      )}
+
+                      {dropping &&
+                        geom.contacts.map((c) => (
+                          <g key={`slot-${pathKey(c.path)}`}>
+                            {armed !== 'BRANCH' && (
+                              <g
+                                className="ff-slot"
+                                onClick={() =>
+                                  drop(view.rung.id, c.path, 'series', c.node)
+                                }
+                              >
+                                <rect
+                                  x={colRight(c.col) - 9}
+                                  y={c.cy - 9}
+                                  width={18}
+                                  height={18}
+                                  rx={2}
+                                />
+                                <text x={colRight(c.col)} y={c.cy + 4}>
+                                  +
+                                </text>
+                                <title>insert after this instruction</title>
+                              </g>
+                            )}
+                            <g
+                              className="ff-slot ff-slot-br"
+                              onClick={() =>
+                                drop(view.rung.id, c.path, 'parallel', c.node)
+                              }
+                            >
+                              <rect
+                                x={c.cx - 8}
+                                y={c.cy + BAR_H + 3}
+                                width={16}
+                                height={16}
+                                rx={2}
+                              />
+                              <text x={c.cx} y={c.cy + BAR_H + 15}>
+                                +
+                              </text>
+                              <title>branch around this instruction</title>
+                            </g>
+                          </g>
+                        ))}
+
+                      {/* output coil */}
+                      <path
+                        className="ff-coil"
+                        data-r={view.index}
+                        data-n={0}
+                        data-f="1"
+                        data-s="0"
+                        d={`M ${geom.coil.cx - 16} ${geom.coil.cy - 14} A 18 14 0 0 0 ${geom.coil.cx - 16} ${geom.coil.cy + 14}`}
+                      />
+                      <path
+                        className="ff-coil"
+                        data-r={view.index}
+                        data-n={0}
+                        data-f="1"
+                        data-s="0"
+                        d={`M ${geom.coil.cx + 16} ${geom.coil.cy - 14} A 18 14 0 0 1 ${geom.coil.cx + 16} ${geom.coil.cy + 14}`}
+                      />
+                      {(labelOf[view.rung.output] ?? '').length > 0 && (
+                        <>
+                          <rect
+                            className="ff-chip"
+                            x={geom.coil.cx - chipWidth(labelOf[view.rung.output]) / 2}
+                            y={geom.coil.cy + CHIP_Y}
+                            width={chipWidth(labelOf[view.rung.output])}
+                            height={CHIP_H}
+                            rx={1}
+                          />
+                          <text
+                            className="ff-chip-t"
+                            x={geom.coil.cx}
+                            y={geom.coil.cy + CHIP_Y + 9}
+                          >
+                            {labelOf[view.rung.output]}
+                          </text>
+                        </>
+                      )}
+                      <text className="ff-addr" x={geom.coil.cx} y={geom.coil.cy + WORD_Y}>
+                        {splitAddress(view.rung.output)[0]}
+                      </text>
+                      {splitAddress(view.rung.output)[1].length > 0 && (
+                        <text className="ff-addr" x={geom.coil.cx} y={geom.coil.cy + BIT_Y}>
+                          {splitAddress(view.rung.output)[1]}
+                        </text>
+                      )}
+                      <text
+                        className="ff-mn"
+                        x={geom.coil.cx}
+                        y={geom.coil.cy + BAR_H + 13}
+                      >
+                        OTE
+                      </text>
+                    </svg>
+
+                    {editing !== null &&
+                      selected !== null &&
+                      editing.rungId === view.rung.id &&
+                      pathKey(editing.path) === pathKey(selected.shape.path) && (
+                        <AddressEditor
+                          x={selected.shape.cx}
+                          y={selected.shape.cy + BAR_H + 20}
+                          current={selected.shape.node.tag}
+                          tags={labels}
+                          onClose={() => beginEdit(null)}
+                          onPick={(id) => {
+                            const at = editing
+                            applyOp(at, (root, path) => setContactTag(root, path, id))
+                          }}
                         />
                       )}
-                      <text className="ff-label" x={c.cx} y={c.cy + 28}>
-                        {labelOf[c.node.tag] ?? ''}
-                      </text>
-                      <rect
-                        className="ff-hit"
-                        x={colLeft(c.col) + 8}
-                        y={c.cy - 26}
-                        width={CELL_W - 16}
-                        height={54}
-                        onClick={() => select({ rungId: view.rung.id, path: c.path })}
-                      />
-                    </g>
-                  )
-                })}
+                  </div>
+                )}
+              </div>
+            </section>
+          )
+        })}
 
-                {/* output coil */}
-                <path
-                  className="ff-coil"
-                  data-r={view.index}
-                  data-n={0}
-                  data-f="1"
-                  data-s="0"
-                  d={`M ${view.geom.coil.cx - 15} ${view.geom.coil.cy - 15} A 17 15 0 0 0 ${view.geom.coil.cx - 15} ${view.geom.coil.cy + 15}`}
-                />
-                <path
-                  className="ff-coil"
-                  data-r={view.index}
-                  data-n={0}
-                  data-f="1"
-                  data-s="0"
-                  d={`M ${view.geom.coil.cx + 15} ${view.geom.coil.cy - 15} A 17 15 0 0 1 ${view.geom.coil.cx + 15} ${view.geom.coil.cy + 15}`}
-                />
-                <text
-                  className="ff-addr"
-                  data-r={view.index}
-                  data-n={0}
-                  data-f="1"
-                  data-s="0"
-                  x={view.geom.coil.cx}
-                  y={view.geom.coil.cy - 22}
-                >
-                  {view.rung.output}
-                </text>
-                <text className="ff-label" x={view.geom.coil.cx} y={view.geom.coil.cy + 28}>
-                  {labelOf[view.rung.output] ?? ''}
-                </text>
-              </svg>
-            )}
+        {views.length > 0 && (
+          <section className="ff-rung ff-rung-end">
+            <div className="ff-gutter ff-gutter-static">
+              <span className="ff-gutter-no">
+                {String(views.length).padStart(4, '0')}
+              </span>
+            </div>
+            <div className="ff-rungbody">
+              <div className="ff-end-mark">(END)</div>
+            </div>
           </section>
-        ))}
+        )}
       </div>
 
-      {/* --- editor ------------------------------------------------------- */}
-      <div className="ff-editor">
-        {selected === null ? (
-          <span className="ff-editor-idle">
-            SELECT A CONTACT TO EDIT · CHANGES STAY OFFLINE UNTIL YOU DOWNLOAD
-          </span>
-        ) : (
+      {/* --- status line -------------------------------------------------- */}
+      <div className="ff-status">
+        {armed !== null ? (
           <>
-            <span className="ff-editor-tag">
-              RUNG {String(selected.view.index).padStart(3, '0')} ·{' '}
-              {selected.shape.node.negated ? 'XIO' : 'XIC'} ·{' '}
-              {selected.shape.node.tag}
+            <span className="ff-status-armed">{armed} armed</span>
+            <span className="ff-status-hint">
+              click a <b>+</b> drop point, or an instruction to insert after it
             </span>
-
-            <label className="ff-field">
-              ADDRESS
-              <select
-                value={selected.shape.node.tag}
-                onChange={(e) => {
-                  const tag = e.target.value
-                  applyOp((root, path) => setContactTag(root, path, tag))
-                }}
-              >
-                {labels.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.id} — {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button className="ff-op" onClick={() => applyOp(toggleContactType)}>
-              {selected.shape.node.negated ? 'MAKE XIC  -| |-' : 'MAKE XIO  -|/|-'}
-            </button>
-            <button
-              className="ff-op"
-              onClick={() =>
-                applyOp((root, path) =>
-                  insertSeries(root, path, contact(selected.shape.node.tag)),
-                )
-              }
-            >
-              + SERIES
-            </button>
-            <button
-              className="ff-op"
-              onClick={() =>
-                applyOp((root, path) =>
-                  insertParallel(root, path, contact(selected.shape.node.tag)),
-                )
-              }
-            >
-              + BRANCH
-            </button>
-            <button
-              className="ff-op ff-op-danger"
-              disabled={!canDelete}
-              title={canDelete ? '' : 'a rung must keep at least one contact'}
-              onClick={() => applyOp(removeAt)}
-            >
-              DELETE
-            </button>
-            <button className="ff-op" onClick={() => select(null)}>
-              DESELECT
+            <button type="button" className="ff-status-cancel" onClick={() => arm(null)}>
+              Cancel
             </button>
           </>
+        ) : selected !== null ? (
+          <>
+            <span className="ff-status-armed">
+              Rung {String(selected.view.index).padStart(4, '0')} ·{' '}
+              {selected.shape.node.negated ? 'XIO' : 'XIC'} · {selected.shape.node.tag}
+            </span>
+            <span className="ff-status-hint">
+              double-click the instruction to change its address
+            </span>
+          </>
+        ) : selection !== null ? (
+          <span className="ff-status-armed">
+            Rung {String(selectedIndex ?? 0).padStart(4, '0')} selected — pick an
+            instruction from the toolbar to insert it first on the rung
+          </span>
+        ) : (
+          <span className="ff-status-hint">
+            Click an instruction to select it · double-click its address to change it ·
+            edits stay offline until you download
+          </span>
         )}
-        {notice !== null && <span className="ff-notice">{notice}</span>}
+        {notice !== null && (
+          <button
+            type="button"
+            className="ff-notice"
+            title="dismiss"
+            onClick={() => setNotice(null)}
+          >
+            {notice}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -1,17 +1,25 @@
 'use client'
 
 /**
- * Lighting — Realistic industrial factory lighting.
+ * Lighting — the shed's lighting scheme, as one scheme.
  *
- * Based on actual production floor lighting:
+ * Based on how a real production floor is lit:
  * - Bright overhead fluorescents (4000K–5000K white)
  * - Light gray concrete reflects well
  * - Well-lit work areas with minimal shadows in aisles
  * - Brightness and fog controlled by settings store
+ *
+ * The important change from the earlier version is that there is no longer a
+ * hand-placed pair of task lights bolted on over the control corner. That pair
+ * existed because the luminaire grid was built from the gaps BETWEEN the roof
+ * beams and therefore stopped at the outermost beam, leaving the two end bays —
+ * the switchgear run in the north and the office frontage in the south — with no
+ * fixture at all. The grid now covers every roof bay including the end ones, so
+ * the exception is gone and the room is lit by a single rule.
  */
 
 import type { GPUTier } from '@/utils/gpuCapabilities'
-import { FACTORY } from './FactoryFloor'
+import { FACTORY, BEAM_Z } from './FactoryFloor'
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -25,6 +33,26 @@ interface LightingProps {
 /** How far down the shed goes when he is fully wound up. */
 const ANGRY_DIM = 0.28
 
+/** Authored emissive level of a lit tube, before brightness and anger scale it. */
+const TUBE_EMISSIVE = 2.0
+
+/**
+ * Shared luminaire materials.
+ *
+ * One tube material and one housing material for the whole grid, mutated in the
+ * frame loop rather than re-created per fixture. The previous version declared
+ * `<meshStandardMaterial>` inside the fixture map, so every luminaire compiled and
+ * bound its own program for an identical surface — and the emissive level, which
+ * is the only thing that ever changes, was baked into the JSX and so could not
+ * follow the anger dimmer that was already pulling every actual light down.
+ */
+const MAT = {
+  tube: new THREE.MeshStandardMaterial({
+    color: '#f8f6f0', emissive: '#f8f6f0', emissiveIntensity: TUBE_EMISSIVE, roughness: 0.1,
+  }),
+  housing: new THREE.MeshStandardMaterial({ color: '#e0e0e0', roughness: 0.5, metalness: 0.3 }),
+} as const
+
 /**
  * Pulls every light in the group down as the supervisor's anger rises.
  *
@@ -32,48 +60,107 @@ const ANGRY_DIM = 0.28
  * props, because anger changes every frame — driving it through React would be
  * a full reconcile per frame for a number that only feeds three.js. Each light's
  * authored intensity is captured once into userData and treated as its 100%.
+ *
+ * The emissive tubes are dimmed here too, from the same factor. A fixture that
+ * keeps glowing at full while the light it casts fades to a quarter reads as a
+ * rendering bug, which is exactly how it read before.
  */
 function AngerDimmer({ group }: { group: React.RefObject<THREE.Group | null> }) {
   const dim = useRef(1)
+  const lastBrightness = useRef(-1)
   useFrame((_, delta) => {
     const g = group.current
     if (!g) return
     const anger = useGameStore.getState().anger
     const want = 1 - Math.min(1, anger) * (1 - ANGRY_DIM)
     dim.current = THREE.MathUtils.damp(dim.current, want, 3, Math.min(delta, 0.05))
+
+    // The brightness slider feeds every light's intensity PROP. Because this
+    // loop overwrites intensity from a cached base, a cached base captured under
+    // the old slider value would silently swallow the new one — moving the
+    // slider would change nothing. R3F has already written the new prop by the
+    // time the next frame runs, so re-capturing here is enough.
+    const brightness = useSettingsStore.getState().brightness
+    const recapture = brightness !== lastBrightness.current
+    lastBrightness.current = brightness
+
     g.traverse((o) => {
       const l = o as THREE.Light
       if (!l.isLight) return
-      if (l.userData.baseIntensity === undefined) l.userData.baseIntensity = l.intensity
+      if (recapture || l.userData.baseIntensity === undefined) {
+        l.userData.baseIntensity = l.intensity
+      }
       l.intensity = (l.userData.baseIntensity as number) * dim.current
     })
+    MAT.tube.emissiveIntensity = TUBE_EMISSIVE * brightness * dim.current
   })
   return null
+}
+
+/**
+ * Luminaire COLUMNS.
+ *
+ * Chosen to clear the ceiling services rather than to divide the width evenly.
+ * The cable trays run the full depth at x = ±5 and the pipe bank sits at x ≈ −8,
+ * and a 1.2 m tube directly above a 0.4 m tray is a tube nobody on the floor can
+ * see — it lights the back of a tray. These five lines keep 1 m clear of every
+ * tray and 1 m clear of the north-south roof beams at x = ±13, and put the outer
+ * rows 3 m off the side walls, which is about right for a 5 m roof.
+ */
+const LIGHT_COLS = [-12, -6, 0, 6, 12] as const
+
+/** Fixture height: just under the 0.3 m deep roof beams, which start at y = 4.7. */
+const FIXTURE_Y = FACTORY.HEIGHT - 0.3
+
+interface Fixture {
+  pos: [number, number, number]
+  ix: number
+  iz: number
 }
 
 export function Lighting({ tier }: LightingProps) {
   const brightness = useSettingsStore(s => s.brightness)
   const fogDensity = useSettingsStore(s => s.fogDensity)
 
-  // Position lights centred BETWEEN the east-west ceiling beams.
-  // Beams are at Z = -7.5, -2.5, 2.5, 7.5 (every 5m starting at -7.5).
-  // Midpoints between beam pairs: Z = -5, 0, 5
-  // This creates 3 symmetrical rows of lights aligned with the structural grid.
-  const tubeLights = useMemo(() => {
-    const lights: [number, number, number][] = []
-    const beamZPositions = [-7.5, -2.5, 2.5, 7.5]
-    const midpoints: number[] = []
-    for (let i = 0; i < beamZPositions.length - 1; i++) {
-      midpoints.push((beamZPositions[i] + beamZPositions[i + 1]) / 2)
-    }
-    // X positions: evenly spaced every 5m, symmetrical around centre
-    for (let x = -FACTORY.WIDTH / 2 + 5; x <= FACTORY.WIDTH / 2 - 5; x += 5) {
-      for (const z of midpoints) {
-        lights.push([x, FACTORY.HEIGHT - 0.3, z])
-      }
-    }
-    return lights
+  /**
+   * Luminaire ROWS — one down the centre of every roof bay.
+   *
+   * The east-west beams (BEAM_Z, exported by FactoryFloor so this cannot drift
+   * from the structure it claims to follow) sit at z = −7.5, −2.5, 2.5, 7.5 and
+   * divide the 20 m depth into FIVE bays once the two walls are counted as edges:
+   * −10..−7.5, −7.5..−2.5, −2.5..2.5, 2.5..7.5, 7.5..10. Centres therefore fall
+   * at −8.75, −5, 0, 5, 8.75. The old grid used only the three interior gaps,
+   * which is why nothing north of z = −7.5 or south of z = 7.5 had a fixture.
+   */
+  const fixtures = useMemo(() => {
+    const edges = [-FACTORY.DEPTH / 2, ...BEAM_Z, FACTORY.DEPTH / 2]
+    const rows: number[] = []
+    for (let i = 0; i < edges.length - 1; i++) rows.push((edges[i] + edges[i + 1]) / 2)
+
+    const out: Fixture[] = []
+    rows.forEach((z, iz) => {
+      LIGHT_COLS.forEach((x, ix) => out.push({ pos: [x, FIXTURE_Y, z], ix, iz }))
+    })
+    return out
   }, [])
+
+  /**
+   * Which fixtures are actually emitting light, per tier.
+   *
+   * All 25 are DRAWN at every tier — they are two boxes each and they are what
+   * the player reads as "a lit factory". Only a subset carries a point light,
+   * because point lights are per-fragment work in a forward renderer and 25 of
+   * them costs more than the room is worth.
+   *
+   * High: a checkerboard, 13 of 25. Every unlit fixture is 6 m from two lit ones
+   * on the same axis, well inside their 14 m radius, so there is no dark node.
+   * Medium: every other column of every other row, 9 of 25, brighter and further.
+   * Low: none — a single overhead directional does the whole room.
+   */
+  const isLit = (f: Fixture) =>
+    tier === 'high' ? (f.ix + f.iz) % 2 === 0
+      : tier === 'medium' ? f.ix % 2 === 0 && f.iz % 2 === 0
+        : false
 
   // Fog distance scales with density setting (0 = no fog, 1 = heavy fog)
   const fogNear = 10 + (1 - fogDensity) * 30
@@ -113,7 +200,9 @@ export function Lighting({ tier }: LightingProps) {
         />
       )}
 
-      {/* Fill from opposite side (prevents harsh single-direction shadows) */}
+      {/* Fill from the north-west, aimed back across the switchgear elevation —
+          the one wall with no window, no skylight and a full-height run of dark
+          cabinets in front of it. */}
       {tier !== 'low' && (
         <directionalLight
           position={[-10, FACTORY.HEIGHT, -5]}
@@ -129,46 +218,31 @@ export function Lighting({ tier }: LightingProps) {
         color="#d8d0c0"
       />
 
-      {/* Overhead fluorescent tubes — the main factory lighting */}
-      {tier === 'high' && tubeLights.map((pos, i) => (
-        <group key={i} position={pos}>
-          <pointLight
-            intensity={0.7 * brightness}
-            color="#f8f4ec"
-            distance={10}
-            decay={2}
-          />
-          {/* Visible tube fixture (bright white emissive) */}
-          <mesh name={`light_fixture_${i}`}>
-            <boxGeometry args={[1.2, 0.04, 0.12]} />
-            <meshStandardMaterial
-              color="#f8f6f0"
-              emissive="#f8f6f0"
-              emissiveIntensity={2.0 * brightness}
-              roughness={0.1}
-            />
-          </mesh>
-          {/* Housing */}
-          <mesh position={[0, 0.04, 0]}>
-            <boxGeometry args={[1.3, 0.06, 0.2]} />
-            <meshStandardMaterial color="#e0e0e0" roughness={0.5} metalness={0.3} />
-          </mesh>
-        </group>
-      ))}
+      {/* ── The luminaire grid ──────────────────────────────────────────────
+          One twin-tube fitting per node, all sharing MAT.tube / MAT.housing. */}
+      {fixtures.map((f, i) => {
+        const lit = isLit(f)
+        return (
+          <group key={i} name={`luminaire_${i}`} position={f.pos}>
+            {lit && (
+              <pointLight
+                intensity={(tier === 'high' ? 0.9 : 1.3) * brightness}
+                color="#f8f4ec"
+                distance={tier === 'high' ? 14 : 18}
+                decay={2}
+              />
+            )}
+            <mesh name={`light_fixture_${i}`} material={MAT.tube}>
+              <boxGeometry args={[1.2, 0.04, 0.12]} />
+            </mesh>
+            <mesh name={`light_housing_${i}`} position={[0, 0.04, 0]} material={MAT.housing}>
+              <boxGeometry args={[1.3, 0.06, 0.2]} />
+            </mesh>
+          </group>
+        )
+      })}
 
-      {/* Medium tier: fewer but brighter tubes */}
-      {tier === 'medium' && tubeLights.filter((_, i) => i % 2 === 0).map((pos, i) => (
-        <pointLight
-          key={i}
-          position={pos}
-          intensity={0.9 * brightness}
-          color="#f8f4ec"
-          distance={14}
-          decay={2}
-        />
-      ))}
-
-      {/* Low tier: just boost ambient more */}
+      {/* Low tier: no point lights at all, one more directional instead */}
       {tier === 'low' && (
         <directionalLight
           position={[0, FACTORY.HEIGHT, 0]}
@@ -177,38 +251,15 @@ export function Lighting({ tier }: LightingProps) {
         />
       )}
 
-      {/* Task lighting over the north-wall switchgear run.
-          The tube grid is built from the gaps BETWEEN roof beams, and the
-          northernmost beam is at z = -7.5, so there is no bay north of it and
-          the whole control corner sat in the dark — which is most of why it read
-          as a mess. Two fixtures over the cabinets rather than a sixth grid row,
-          because that is what the room would actually have and it costs two
-          lights instead of five. */}
-      {tier !== 'low' && ([6.7, 10.2] as const).map((x) => (
-        <group key={x} position={[x, FACTORY.HEIGHT - 0.45, -8.9]}>
-          <pointLight intensity={0.55 * brightness} color="#f8f4ec" distance={9} decay={2} />
-          <mesh name={`task_light_${x}`}>
-            <boxGeometry args={[1.1, 0.05, 0.16]} />
-            <meshStandardMaterial
-              color="#f8f6f0"
-              emissive="#f8f6f0"
-              emissiveIntensity={2.0 * brightness}
-              roughness={0.1}
-            />
-          </mesh>
-          <mesh position={[0, 0.05, 0]}>
-            <boxGeometry args={[1.2, 0.07, 0.24]} />
-            <meshStandardMaterial color="#d8d8d8" roughness={0.5} metalness={0.3} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Emergency exit light (red) */}
+      {/* Fire point marker, over the board on the south wall by the entry.
+          It used to be described as an emergency exit light and sat on the NORTH
+          wall — the far end of the building from the way in. */}
       <pointLight
-        position={[3, FACTORY.HEIGHT - 0.5, -(FACTORY.DEPTH / 2 - 1)]}
-        intensity={0.15}
+        name="fire_point_glow"
+        position={[-3.6, 3.2, FACTORY.DEPTH / 2 - 0.6]}
+        intensity={0.18}
         color="#ff2200"
-        distance={5}
+        distance={4.5}
         decay={2}
       />
 

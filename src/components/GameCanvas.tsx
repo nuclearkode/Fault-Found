@@ -28,6 +28,7 @@ import { RigRenderer } from '@/components/factory/RigRenderer'
 import { Supervisor } from '@/components/factory/Supervisor'
 import { FaultCamera } from '@/components/factory/FaultCamera'
 import { PreShift } from '@/components/factory/PreShift'
+import { RackClutter } from '@/components/factory/RackClutter'
 import { Lighting } from '@/components/factory/Lighting'
 import { BreakerPanel } from '@/components/factory/BreakerPanel'
 import { SupervisorOffice } from '@/components/factory/SupervisorOffice'
@@ -323,6 +324,11 @@ export function GameCanvas() {
             <MotorControlCenter position={[10.2, 0, -9.65]} />
             <IndustrialShelving position={[14.7, 0, -6.6]} rotation={[0, -Math.PI / 2, 0]} />
             <IndustrialShelving position={[14.7, 0, -3.4]} rotation={[0, -Math.PI / 2, 0]} />
+            {/* Spares on the stores racks. Each device is a clone out of
+                devices.glb — see RackClutter, which places but never builds.
+                Different seeds so the two racks are not the same rack twice. */}
+            <RackClutter position={[14.7, 0, -6.6]} rotation={[0, -Math.PI / 2, 0]} seed={7} />
+            <RackClutter position={[14.7, 0, -3.4]} rotation={[0, -Math.PI / 2, 0]} seed={23} />
             <Workbench position={[14.55, 0, -0.2]} rotation={[0, -Math.PI / 2, 0]} />
 
             {/* ── BREAKER PANEL — west wall ─────────────────────────────────

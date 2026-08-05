@@ -11,12 +11,18 @@
  *
  * It does NOT bind keys. `src/input/keymap.ts` owns L and Escape for every
  * focus, and it already skips events aimed at INPUT/TEXTAREA/SELECT so typing
- * in here cannot reach the game. It also never touches the pointer lock —
- * `PointerLockWarden` is the only thing allowed to release it.
+ * an address in here cannot reach the game. It also never touches the pointer
+ * lock — `PointerLockWarden` is the only thing allowed to release it. Every
+ * control below is therefore reachable with the mouse alone.
  *
  * The world keeps running while this is open (SIMULATES.laptop is true): the
  * player is reading a LIVE machine and the shift clock is burning, which is why
- * the clock is on the title bar where they cannot miss it.
+ * the clock is on the online bar where they cannot miss it.
+ *
+ * The chrome is deliberately a late-90s Windows PLC editor — white ladder
+ * canvas, blue instructions, green power, dense grey chrome. The horror is in
+ * the shed, not in the software; the terminal is the one thing in this game
+ * that behaves like a tool.
  */
 
 import { useEffect, useRef } from 'react'
@@ -25,16 +31,11 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useLaptopStore } from '@/stores/laptopStore'
 import { LadderView } from './LadderView'
 import { IoTable } from './IoTable'
+import { Toolbar } from './Toolbar'
 
 const clock = (seconds: number): string => {
   const s = Math.max(0, Math.floor(seconds))
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-}
-
-const stamp = (ms: number): string => {
-  if (ms === 0) return 'NONE THIS SESSION'
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
 }
 
 /**
@@ -74,17 +75,18 @@ function ShiftClock() {
   return <span className="ff-clock" ref={ref}>--:--</span>
 }
 
+const MENUS = ['File', 'Edit', 'View', 'Search', 'Comms', 'Tools', 'Window', 'Help']
+
 export function Laptop() {
   const open = useSettingsStore((s) => s.overlay === 'laptop')
   const scenarioId = useGameStore((s) => s.scenarioId)
+  const phase = useGameStore((s) => s.phase)
+  const rungCount = useGameStore((s) => s.rungs.length)
 
   const tab = useLaptopStore((s) => s.tab)
   const setTab = useLaptopStore((s) => s.setTab)
   const pending = useLaptopStore((s) => Object.keys(s.drafts).length)
-  const download = useLaptopStore((s) => s.download)
   const clearDrafts = useLaptopStore((s) => s.clearDrafts)
-  const setNotice = useLaptopStore((s) => s.setNotice)
-  const lastDownload = useLaptopStore((s) => s.lastDownload)
 
   /**
    * Drafts belong to the program they were written against. When the running
@@ -95,6 +97,11 @@ export function Laptop() {
   useEffect(() => useGameStore.subscribe((s) => s.rungs, clearDrafts), [clearDrafts])
 
   if (!open) return null
+
+  // ONLINE means what it means on a real terminal: there is a processor at the
+  // other end of the cable and it is scanning. Everything the ladder shows —
+  // the green rails, the live highlight — is only true when this is true.
+  const online = phase === 'active' && rungCount > 0
 
   const stop = (e: React.SyntheticEvent): void => {
     e.stopPropagation()
@@ -116,65 +123,66 @@ export function Laptop() {
         <div className="ff-lid">
           <div className="ff-bezel">
             <div className="ff-cam" />
-            <div className="ff-screen">
-              <header className="ff-top">
-                <span className="ff-id">
-                  <b>FIELDMASTER</b> 400
-                </span>
-                <span className="ff-online">
-                  <i className="ff-led" />
-                  PROCESSOR ONLINE · {scenarioId ?? 'NO JOB'} · RUN MODE
-                </span>
-                <nav className="ff-tabs">
-                  <button
-                    className={tab === 'ladder' ? 'ff-tab ff-tab-on' : 'ff-tab'}
-                    onClick={() => setTab('ladder')}
-                  >
-                    LADDER
-                  </button>
-                  <button
-                    className={tab === 'io' ? 'ff-tab ff-tab-on' : 'ff-tab'}
-                    onClick={() => setTab('io')}
-                  >
-                    I/O TABLE
-                  </button>
-                </nav>
-                <span className="ff-shift">
-                  SHIFT <ShiftClock />
+            <div className={online ? 'ff-screen ff-run' : 'ff-screen'}>
+              <header className="ff-title">
+                <span className="ff-title-app">FIELDMASTER 400</span>
+                <span className="ff-title-doc">
+                  {scenarioId ?? 'NO JOB'} — LAD 2 · MAIN PROGRAM
                 </span>
               </header>
+
+              <nav className="ff-menu">
+                {MENUS.map((m) => (
+                  <span className="ff-menu-item" key={m}>
+                    {m}
+                  </span>
+                ))}
+              </nav>
+
+              <div className="ff-online">
+                <span className={online ? 'ff-pill ff-pill-on' : 'ff-pill ff-pill-off'}>
+                  {online ? 'ONLINE' : 'OFFLINE'}
+                </span>
+                <span className="ff-pill">{online ? 'RUN' : 'PROGRAM'}</span>
+                <span className="ff-pill">No Forces</span>
+                <span className={pending > 0 ? 'ff-pill ff-pill-warn' : 'ff-pill'}>
+                  {pending > 0 ? `${pending} Edit${pending === 1 ? '' : 's'}` : 'No Edits'}
+                </span>
+                <span className="ff-driver">Driver: AB_DF1-1 · Node: 1d</span>
+                <span className="ff-shift">
+                  Shift <ShiftClock />
+                </span>
+              </div>
+
+              {tab === 'ladder' && <Toolbar />}
+
+              <div className="ff-doctabs">
+                <button
+                  type="button"
+                  className={tab === 'ladder' ? 'ff-doctab ff-doctab-on' : 'ff-doctab'}
+                  onClick={() => setTab('ladder')}
+                >
+                  LAD 2 — MAIN
+                </button>
+                <button
+                  type="button"
+                  className={tab === 'io' ? 'ff-doctab ff-doctab-on' : 'ff-doctab'}
+                  onClick={() => setTab('io')}
+                >
+                  Data Files
+                </button>
+              </div>
 
               <div className="ff-body">
                 {tab === 'ladder' ? <LadderView /> : <IoTable />}
               </div>
 
-              <footer className="ff-bottom">
-                <button
-                  className="ff-download"
-                  disabled={pending === 0}
-                  onClick={() => {
-                    const n = download()
-                    setNotice(
-                      n === 0
-                        ? null
-                        : `DOWNLOAD COMPLETE — ${n} RUNG${n === 1 ? '' : 'S'} WRITTEN TO PROCESSOR`,
-                    )
-                  }}
-                >
-                  DOWNLOAD TO PLC{pending > 0 ? ` (${pending})` : ''}
-                </button>
-                <button
-                  className="ff-discard"
-                  disabled={pending === 0}
-                  onClick={() => clearDrafts()}
-                >
-                  DISCARD ALL EDITS
-                </button>
-                <span className="ff-last">LAST DOWNLOAD {stamp(lastDownload)}</span>
-                <span className="ff-warn">
-                  LINE IS RUNNING — THE SHIFT CLOCK DOES NOT STOP FOR THIS
+              <footer className="ff-statusbar">
+                <span className="ff-sb-pane">2:0000</span>
+                <span className="ff-sb-warn">
+                  The line is running — the shift clock does not stop for this.
                 </span>
-                <span className="ff-hint">[L] OR [ESC] TO CLOSE</span>
+                <span className="ff-sb-hint">[L] or [Esc] to close</span>
               </footer>
             </div>
           </div>
@@ -195,9 +203,14 @@ export function Laptop() {
  * painted with. Colour lives HERE and not in the paint loop on purpose: the loop
  * writes one attribute per changed element and the cascade does the rest.
  *
- *   data-s="0"  dead
+ *   data-s="0"  dead                                     (blue — the cold rung)
  *   data-s="1"  contact made, but nothing is feeding it   (amber — read this one)
- *   data-s="2"  powered
+ *   data-s="2"  powered                                   (green)
+ *
+ * A real RSLogix screen only has two of those: it greens an instruction whenever
+ * its bit says so, fed or not. The amber middle state is this game's addition and
+ * it is the best teaching device in the whole UI — "made, but dead" is exactly
+ * how a technician reads a rung that should be working and isn't.
  */
 const CSS = `
 .ff-backdrop {
@@ -208,14 +221,27 @@ const CSS = `
   display: flex; align-items: flex-end; justify-content: center;
   background: radial-gradient(120% 90% at 50% 100%, rgba(10,12,16,.72), rgba(4,5,7,.94));
   backdrop-filter: blur(3px);
-  font-family: "JetBrains Mono", ui-monospace, "Courier New", monospace;
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  font-size: 12px;
+  color: #10151c;
   animation: ff-fade 240ms ease both;
   overflow: hidden;
+
+  --ff-ink: #10151c;
+  --ff-dim: #5d6879;
+  --ff-line: #a9b2c0;
+  --ff-face: #eef1f5;
+  --ff-face-2: #dde3ec;
+  --ff-blue: #2430c0;      /* the cold rung: wires, bars, coil parens */
+  --ff-green: #06a12c;     /* powered */
+  --ff-amber: #c07a00;     /* made, but nothing feeding it */
+  --ff-sel: #1a56db;
+  --ff-red: #b3261e;
 }
 @keyframes ff-fade { from { opacity: 0 } to { opacity: 1 } }
 
 .ff-stage {
-  width: min(1240px, 97vw);
+  width: min(1280px, 98vw);
   perspective: 1700px;
   perspective-origin: 50% 100%;
   padding-bottom: 1.2vh;
@@ -236,230 +262,420 @@ const CSS = `
 
 .ff-bezel {
   position: relative;
-  height: min(76vh, 800px);
-  background: linear-gradient(180deg, #23262c 0%, #15171b 8%, #101216 92%, #191c21 100%);
-  border: 1px solid #2c3138;
+  height: min(78vh, 830px);
+  background: linear-gradient(180deg, #3c4149 0%, #23262c 8%, #1b1e23 92%, #2a2e35 100%);
+  border: 1px solid #494f58;
   border-radius: 10px 10px 4px 4px;
-  padding: 26px 16px 18px;
+  padding: 24px 14px 16px;
   box-shadow:
-    0 -2px 0 rgba(255,255,255,.05) inset,
+    0 -2px 0 rgba(255,255,255,.06) inset,
     0 40px 90px rgba(0,0,0,.75),
     0 0 0 1px rgba(0,0,0,.6);
 }
 .ff-cam {
-  position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
   width: 6px; height: 6px; border-radius: 50%;
-  background: #0a0c10; box-shadow: 0 0 0 2px #2a2e35, 0 0 6px rgba(78,240,138,.25);
+  background: #0a0c10; box-shadow: 0 0 0 2px #4a5058;
 }
 
 .ff-screen {
   height: 100%;
   display: flex; flex-direction: column;
-  background:
-    repeating-linear-gradient(0deg, rgba(0,0,0,.26) 0 1px, rgba(0,0,0,0) 1px 3px),
-    radial-gradient(120% 100% at 50% 0%, #0d1a13 0%, #060b08 70%, #040705 100%);
-  border: 1px solid #05100a;
-  border-radius: 3px;
-  box-shadow: 0 0 42px rgba(78,240,138,.10) inset, 0 0 0 1px rgba(78,240,138,.06) inset;
-  color: #8ef0b0;
+  background: var(--ff-face);
+  border: 1px solid #7c8695;
+  border-radius: 2px;
   overflow: hidden;
 }
 
-/* --- chrome ------------------------------------------------------------ */
-.ff-top {
-  display: flex; align-items: center; gap: 14px;
-  padding: 7px 12px;
-  border-bottom: 1px solid rgba(78,240,138,.16);
-  background: linear-gradient(180deg, rgba(78,240,138,.07), rgba(0,0,0,0));
-  font-size: 11px; letter-spacing: .08em;
-}
-.ff-id { color: #cfe9d8; letter-spacing: .16em; }
-.ff-id b { color: #e63946; font-weight: 700; }
-.ff-online { color: #4c7f63; display: flex; align-items: center; gap: 7px; }
-.ff-led {
-  width: 7px; height: 7px; border-radius: 50%; background: #4ef08a;
-  box-shadow: 0 0 8px #4ef08a; animation: ff-blink 2.4s steps(1) infinite;
-}
-@keyframes ff-blink { 0%,88% { opacity: 1 } 89%,100% { opacity: .25 } }
-.ff-tabs { margin-left: auto; display: flex; gap: 6px; }
-.ff-tab {
-  font: inherit; font-size: 11px; letter-spacing: .12em;
-  padding: 5px 14px; cursor: pointer;
-  background: rgba(255,255,255,.02); color: #4c7f63;
-  border: 1px solid rgba(78,240,138,.16); border-radius: 2px;
-}
-.ff-tab:hover { color: #8ef0b0; border-color: rgba(78,240,138,.34); }
-.ff-tab-on {
-  background: rgba(78,240,138,.13); color: #b6ffd2;
-  border-color: rgba(78,240,138,.55);
-  box-shadow: 0 0 12px rgba(78,240,138,.18);
-}
-.ff-shift { color: #4c7f63; letter-spacing: .12em; }
-.ff-clock { color: #e63946; font-weight: 700; letter-spacing: .06em; margin-left: 6px; }
-
-.ff-body { flex: 1; min-height: 0; display: flex; }
-
-.ff-bottom {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 12px;
-  border-top: 1px solid rgba(78,240,138,.16);
-  background: linear-gradient(0deg, rgba(78,240,138,.05), rgba(0,0,0,0));
-  font-size: 10px; letter-spacing: .1em; color: #3f6e55;
-}
-.ff-download {
-  font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .12em;
-  padding: 7px 16px; cursor: pointer;
-  background: #e63946; color: #0a0c10; border: 1px solid #ff5a66; border-radius: 2px;
-  box-shadow: 0 0 18px rgba(230,57,70,.28);
-}
-.ff-download:disabled {
-  background: rgba(255,255,255,.03); color: #35604a;
-  border-color: rgba(78,240,138,.14); box-shadow: none; cursor: default;
-}
-.ff-discard {
-  font: inherit; font-size: 10px; letter-spacing: .12em;
-  padding: 7px 12px; cursor: pointer;
-  background: rgba(255,255,255,.02); color: #6fbf90;
-  border: 1px solid rgba(78,240,138,.2); border-radius: 2px;
-}
-.ff-discard:disabled { color: #2d5340; cursor: default; }
-.ff-warn { margin-left: auto; color: #b9863a; }
-.ff-hint { color: #3f6e55; }
-.ff-last { color: #2f5b45; }
-
-/* --- ladder ------------------------------------------------------------ */
-.ff-ladder { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ff-ladder-scroll { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 10px; }
-.ff-ladder-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-.ff-ladder-scroll::-webkit-scrollbar-thumb { background: rgba(78,240,138,.18); }
-.ff-ladder-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,.35); }
-
-.ff-empty, .ff-parse-error {
-  padding: 24px; font-size: 11px; letter-spacing: .12em; color: #4c7f63;
-}
-.ff-parse-error { color: #e63946; }
-
-.ff-rung { border-bottom: 1px solid rgba(78,240,138,.08); }
-.ff-rung-head {
+/* --- window chrome ------------------------------------------------------ */
+.ff-title {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 14px 0; font-size: 10px; letter-spacing: .1em;
+  padding: 5px 10px;
+  background: linear-gradient(180deg, #2c4f8a, #1d3865);
+  color: #f2f5fa;
+  font-size: 11px; letter-spacing: .04em;
+  border-bottom: 1px solid #16294b;
 }
-.ff-rung-no { color: #4ef08a; opacity: .75; }
-.ff-rung-desc { color: #3f6e55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ff-title-app { font-weight: 700; letter-spacing: .1em; }
+.ff-title-doc { opacity: .82; }
+
+.ff-menu {
+  display: flex; gap: 2px;
+  padding: 3px 6px;
+  background: var(--ff-face);
+  border-bottom: 1px solid var(--ff-line);
+  font-size: 11.5px; color: #2a3140;
+}
+.ff-menu-item { padding: 2px 8px; border-radius: 2px; }
+
+.ff-online {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px;
+  background: linear-gradient(180deg, #f7f9fc, var(--ff-face-2));
+  border-bottom: 1px solid var(--ff-line);
+  font-size: 11px;
+}
+.ff-pill {
+  padding: 2px 9px; border-radius: 2px;
+  background: #fff; border: 1px solid var(--ff-line); color: #333b49;
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+}
+.ff-pill-on { background: #dcf5e1; border-color: #4aa863; color: #0d6b28; font-weight: 700; }
+.ff-pill-off { background: #ececef; border-color: #9aa3b1; color: #5c6472; font-weight: 700; }
+.ff-pill-warn { background: #fdeccd; border-color: #d09a2c; color: #7a5200; font-weight: 700; }
+.ff-driver { color: var(--ff-dim); margin-left: 6px; }
+.ff-shift {
+  margin-left: auto; color: var(--ff-dim);
+  display: flex; align-items: center; gap: 6px;
+}
+.ff-clock {
+  font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+  font-size: 13px; font-weight: 700; color: var(--ff-red);
+  background: #fff; border: 1px solid var(--ff-line); padding: 1px 7px;
+}
+
+/* --- instruction toolbar ------------------------------------------------ */
+.ff-itbar {
+  background: var(--ff-face-2);
+  border-bottom: 1px solid var(--ff-line);
+}
+.ff-itbar-tabs { display: flex; gap: 2px; padding: 3px 6px 0; }
+.ff-itab {
+  padding: 2px 12px; font-size: 10.5px;
+  border: 1px solid var(--ff-line); border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  background: #d2d8e2; color: #5d6879;
+}
+.ff-itab-on { background: #fff; color: var(--ff-ink); font-weight: 600; }
+.ff-itab-off { opacity: .55; }
+
+.ff-itbar-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 5px 8px;
+  background: #fff;
+  border-top: 1px solid var(--ff-line);
+}
+.ff-palette { display: flex; align-items: center; gap: 4px; }
+.ff-sep { width: 1px; align-self: stretch; background: var(--ff-line); margin: 0 4px; }
+
+.ff-inst {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font: inherit; cursor: pointer;
+  padding: 3px 8px 2px;
+  background: linear-gradient(180deg, #fbfcfe, var(--ff-face));
+  border: 1px solid var(--ff-line); border-radius: 3px;
+  color: var(--ff-ink);
+}
+.ff-inst em { font-style: normal; font-size: 9px; letter-spacing: .1em; color: var(--ff-dim); }
+.ff-inst:hover { background: #e8effb; border-color: #7c9cd8; }
+.ff-inst-on {
+  background: #d7e6ff; border-color: var(--ff-sel);
+  box-shadow: 0 0 0 1px var(--ff-sel) inset;
+}
+.ff-inst-on em { color: var(--ff-sel); font-weight: 700; }
+.ff-inst-locked { opacity: .45; }
+.ff-glyph { display: block; }
+.ff-g-wire { stroke: var(--ff-blue); stroke-width: 1.6; }
+.ff-g-bar { stroke: var(--ff-blue); stroke-width: 2.2; }
+.ff-inst-on .ff-g-wire, .ff-inst-on .ff-g-bar { stroke: var(--ff-sel); }
+
+.ff-tool {
+  font: inherit; font-size: 11px; cursor: pointer;
+  padding: 5px 10px;
+  background: linear-gradient(180deg, #fbfcfe, var(--ff-face));
+  border: 1px solid var(--ff-line); border-radius: 3px; color: var(--ff-ink);
+}
+.ff-tool:hover:not(:disabled) { background: #e8effb; border-color: #7c9cd8; }
+.ff-tool:disabled { color: #9aa3b1; background: #f3f4f7; cursor: default; }
+.ff-tool-danger:hover:not(:disabled) { background: #fdeaea; border-color: #d08a86; color: var(--ff-red); }
+
+.ff-dl {
+  font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  padding: 5px 14px;
+  background: linear-gradient(180deg, #c8392f, #9d1f17);
+  border: 1px solid #7d1811; border-radius: 3px; color: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,.25) inset;
+}
+.ff-dl:hover:not(:disabled) { background: linear-gradient(180deg, #d84a3f, #ad271e); }
+.ff-dl:disabled {
+  background: #f3f4f7; border-color: var(--ff-line); color: #9aa3b1;
+  box-shadow: none; cursor: default;
+}
+.ff-itbar-last { margin-left: auto; color: var(--ff-dim); font-size: 10.5px; }
+
+/* --- document tabs ------------------------------------------------------ */
+.ff-doctabs {
+  display: flex; gap: 2px; padding: 4px 8px 0;
+  background: var(--ff-face-2);
+  border-bottom: 1px solid var(--ff-line);
+}
+.ff-doctab {
+  font: inherit; font-size: 11px; cursor: pointer;
+  padding: 4px 14px;
+  background: #d2d8e2; color: #4c5666;
+  border: 1px solid var(--ff-line); border-bottom: none;
+  border-radius: 3px 3px 0 0;
+}
+.ff-doctab:hover { background: #e4e9f1; }
+.ff-doctab-on {
+  background: #fff; color: var(--ff-ink); font-weight: 600;
+  box-shadow: 0 1px 0 #fff;
+}
+
+.ff-body { flex: 1; min-height: 0; display: flex; background: #fff; }
+
+/* --- status bar --------------------------------------------------------- */
+.ff-statusbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 8px;
+  background: var(--ff-face-2);
+  border-top: 1px solid var(--ff-line);
+  font-size: 10.5px; color: var(--ff-dim);
+}
+.ff-sb-pane {
+  font-family: ui-monospace, Consolas, monospace;
+  padding: 1px 8px; background: #fff; border: 1px solid var(--ff-line);
+}
+.ff-sb-warn { color: #8a5a00; }
+.ff-sb-hint { margin-left: auto; }
+
+/* --- ladder ------------------------------------------------------------- */
+.ff-ladder { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; }
+.ff-ladder-scroll { flex: 1; min-height: 0; overflow: auto; }
+.ff-ladder-scroll::-webkit-scrollbar { width: 14px; height: 14px; }
+.ff-ladder-scroll::-webkit-scrollbar-thumb {
+  background: #c3cad6; border: 3px solid #fff; border-radius: 7px;
+}
+.ff-ladder-scroll::-webkit-scrollbar-track { background: #f1f3f7; }
+
+.ff-empty, .ff-parse-error { padding: 18px; font-size: 12px; color: var(--ff-dim); }
+.ff-parse-error { color: var(--ff-red); }
+
+.ff-rung { display: flex; align-items: stretch; border-bottom: 1px solid #e3e7ee; }
+.ff-rung-sel { background: #f6f9ff; }
+.ff-rung-end { color: var(--ff-blue); }
+
+.ff-gutter {
+  flex: none; width: 54px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 0;
+  font: inherit; cursor: pointer; text-align: center;
+  background: #eef1f5; border: none; border-right: 1px solid var(--ff-line);
+  color: var(--ff-blue);
+}
+.ff-gutter:hover { background: #e2e9f7; }
+.ff-gutter-static, .ff-gutter-static:hover { cursor: default; background: #eef1f5; }
+.ff-gutter-on { background: #d7e6ff; box-shadow: inset 2px 0 0 var(--ff-sel); }
+.ff-gutter-no {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px; letter-spacing: .04em;
+}
+.ff-zone {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px; font-weight: 700; color: #8a5a00;
+}
+
+/* No min-width:0 — the flex item must keep its content width so a wide rung
+   makes the pane scroll horizontally instead of being silently clipped. */
+.ff-rungbody { flex: 1; padding: 4px 0 2px; }
+.ff-rung-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px 2px; min-height: 18px;
+}
+.ff-comment {
+  background: #fff4bf; border: 1px solid #d9c26a; color: #3a3110;
+  padding: 1px 7px; font-size: 10.5px; max-width: 62ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .ff-badge {
+  padding: 1px 7px; font-size: 10px; letter-spacing: .06em;
+  background: #fdeaea; border: 1px solid #d08a86; color: #8c1f18;
+}
+.ff-badge-eq { background: #fdeccd; border-color: #d09a2c; color: #7a5200; }
+.ff-revert {
   margin-left: auto; flex: none;
-  padding: 2px 7px; border-radius: 2px;
-  background: rgba(230,57,70,.15); color: #ff8f97; border: 1px solid rgba(230,57,70,.5);
-  letter-spacing: .14em;
+  font: inherit; font-size: 10.5px; cursor: pointer;
+  padding: 2px 9px;
+  background: linear-gradient(180deg, #fbfcfe, var(--ff-face));
+  border: 1px solid var(--ff-line); border-radius: 3px; color: #333b49;
 }
-.ff-badge-eq { background: rgba(185,134,58,.14); color: #d9ab5c; border-color: rgba(185,134,58,.5); }
-.ff-mini {
-  font: inherit; font-size: 9px; letter-spacing: .12em; cursor: pointer;
-  padding: 2px 8px; border-radius: 2px;
-  background: transparent; color: #6fbf90; border: 1px solid rgba(78,240,138,.28);
-}
-.ff-mini:hover { background: rgba(78,240,138,.12); color: #c9ffdf; }
+.ff-revert:hover { background: #e8effb; border-color: #7c9cd8; }
 
+.ff-end-mark {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px; color: var(--ff-blue); padding: 4px 10px;
+}
+
+.ff-svgwrap { position: relative; }
 .ff-svg { display: block; }
-.ff-rail { stroke: #3aa06a; stroke-width: 3; opacity: .8; }
-.ff-wire { stroke: #1e3a2a; stroke-width: 2; }
-.ff-wire[data-s="2"] { stroke: #4ef08a; filter: drop-shadow(0 0 3px rgba(78,240,138,.6)); }
-.ff-bar { stroke: #2c4b39; stroke-width: 3; stroke-linecap: round; }
-.ff-bar[data-s="1"] { stroke: #b9863a; }
-.ff-bar[data-s="2"] { stroke: #4ef08a; filter: drop-shadow(0 0 4px rgba(78,240,138,.7)); }
-.ff-coil { stroke: #2c4b39; stroke-width: 3; fill: none; stroke-linecap: round; }
-.ff-coil[data-s="2"] { stroke: #4ef08a; filter: drop-shadow(0 0 5px rgba(78,240,138,.8)); }
+
+/* The rails go thick and green the moment the processor is scanning — the one
+   thing you can read off an online RSLogix screen from across a room. */
+.ff-rail { stroke: #8b94a4; stroke-width: 3; }
+.ff-run .ff-rail { stroke: var(--ff-green); stroke-width: 4.5; }
+
+.ff-wire { stroke: var(--ff-blue); stroke-width: 1.6; }
+.ff-wire[data-s="2"] { stroke: var(--ff-green); stroke-width: 3.4; }
+.ff-bar { stroke: var(--ff-blue); stroke-width: 2.4; }
+.ff-bar[data-s="1"] { stroke: var(--ff-amber); }
+.ff-bar[data-s="2"] { stroke: var(--ff-green); stroke-width: 3.2; }
+.ff-coil { stroke: var(--ff-blue); stroke-width: 2.4; fill: none; }
+.ff-coil[data-s="2"] { stroke: var(--ff-green); stroke-width: 3.2; }
+
 .ff-addr {
-  font-family: inherit; font-size: 11px; text-anchor: middle;
-  fill: #4c7f63; letter-spacing: .04em;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px; text-anchor: middle; fill: #16202e;
 }
-.ff-addr[data-s="1"] { fill: #d9ab5c; }
-.ff-addr[data-s="2"] { fill: #b6ffd2; }
-.ff-label {
-  font-family: inherit; font-size: 9px; text-anchor: middle;
-  fill: #2f5b45; letter-spacing: .06em;
+.ff-mn {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 9px; text-anchor: middle; fill: #7a8494; letter-spacing: .08em;
 }
+/* Symbol chips are STATIC — a real editor does not animate them, and a label
+   that changed colour with the bit would compete with the power flow. */
+.ff-chip { fill: #ddf3dd; stroke: #86b886; stroke-width: 1; }
+.ff-chip-t {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 9px; text-anchor: middle; fill: #1d3a1d;
+}
+
 .ff-hit { fill: transparent; cursor: pointer; }
-.ff-hit:hover { fill: rgba(78,240,138,.07); }
-.ff-sel { fill: rgba(230,57,70,.1); stroke: #e63946; stroke-width: 1; }
+.ff-hit:hover { fill: rgba(26,86,219,.06); }
+.ff-sel { fill: rgba(26,86,219,.10); stroke: var(--ff-sel); stroke-width: 1.5; }
 
-/* --- editor ------------------------------------------------------------ */
-.ff-editor {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 8px 14px;
-  border-top: 1px solid rgba(78,240,138,.16);
-  background: rgba(0,0,0,.4);
-  font-size: 10px; letter-spacing: .1em; min-height: 42px;
+.ff-slot { cursor: pointer; }
+.ff-slot rect {
+  fill: #fff; stroke: var(--ff-sel); stroke-width: 1.2; stroke-dasharray: 3 2;
 }
-.ff-editor-idle { color: #35604a; }
-.ff-editor-tag { color: #b6ffd2; }
-.ff-field { display: flex; align-items: center; gap: 6px; color: #4c7f63; }
-.ff-field select {
-  font: inherit; font-size: 10px; letter-spacing: .06em;
-  padding: 4px 6px; cursor: pointer;
-  background: #08130d; color: #8ef0b0;
-  border: 1px solid rgba(78,240,138,.3); border-radius: 2px;
+.ff-slot text {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px; font-weight: 700; text-anchor: middle; fill: var(--ff-sel);
+  pointer-events: none;
 }
-.ff-op {
-  font: inherit; font-size: 10px; letter-spacing: .1em; cursor: pointer;
-  padding: 5px 10px; border-radius: 2px;
-  background: rgba(78,240,138,.06); color: #8ef0b0;
-  border: 1px solid rgba(78,240,138,.26);
-}
-.ff-op:hover { background: rgba(78,240,138,.16); color: #d6ffe6; }
-.ff-op:disabled { color: #2d5340; border-color: rgba(78,240,138,.1); background: none; cursor: default; }
-.ff-op-danger { color: #ff8f97; border-color: rgba(230,57,70,.35); background: rgba(230,57,70,.08); }
-.ff-op-danger:hover { background: rgba(230,57,70,.2); color: #ffd0d4; }
-.ff-notice { margin-left: auto; color: #d9ab5c; }
+.ff-slot:hover rect { fill: #d7e6ff; stroke-dasharray: none; }
+.ff-slot-br rect { stroke: #0d8b3a; }
+.ff-slot-br text { fill: #0d8b3a; }
+.ff-slot-br:hover rect { fill: #d8f3e0; }
 
-/* --- I/O table --------------------------------------------------------- */
-.ff-io { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 16px; }
-.ff-io::-webkit-scrollbar { width: 10px; }
-.ff-io::-webkit-scrollbar-thumb { background: rgba(78,240,138,.18); }
-.ff-io::-webkit-scrollbar-track { background: rgba(0,0,0,.35); }
-.ff-io-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+/* --- address popover ---------------------------------------------------- */
+.ff-pop-scrim { position: fixed; inset: 0; z-index: 1; }
+.ff-pop {
+  position: absolute; z-index: 2;
+  transform: translateX(-50%);
+  width: 244px;
+  background: #fff;
+  border: 1px solid #6f7c8f;
+  box-shadow: 0 10px 26px rgba(16,21,28,.28);
+}
+.ff-pop-head {
+  padding: 4px 8px; font-size: 10.5px; color: #f2f5fa;
+  background: linear-gradient(180deg, #2c4f8a, #1d3865);
+}
+.ff-pop-input {
+  display: block; width: 100%; box-sizing: border-box;
+  font: inherit; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+  padding: 5px 7px; border: none; border-bottom: 1px solid var(--ff-line);
+  color: var(--ff-ink); background: #fff;
+}
+.ff-pop-input:focus { outline: 2px solid var(--ff-sel); outline-offset: -2px; }
+.ff-pop-list { list-style: none; margin: 0; padding: 0; max-height: 190px; overflow: auto; }
+.ff-pop-row {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  font: inherit; text-align: left; cursor: pointer;
+  padding: 4px 8px; background: #fff; border: none;
+}
+.ff-pop-row:hover { background: #d7e6ff; }
+.ff-pop-cur { background: #eef3fd; }
+.ff-pop-new { background: #fff8e6; }
+.ff-pop-id {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+  color: var(--ff-blue); min-width: 62px;
+}
+.ff-pop-label { font-size: 10.5px; color: var(--ff-dim); }
+.ff-pop-none { padding: 6px 8px; font-size: 11px; color: var(--ff-dim); }
+
+/* --- ladder status line ------------------------------------------------- */
+.ff-status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px; min-height: 26px;
+  background: var(--ff-face);
+  border-top: 1px solid var(--ff-line);
+  font-size: 11px; color: var(--ff-dim);
+}
+.ff-status-armed { color: var(--ff-ink); font-weight: 600; }
+.ff-status-hint { color: var(--ff-dim); }
+.ff-status-cancel {
+  font: inherit; font-size: 10.5px; cursor: pointer;
+  padding: 2px 9px;
+  background: #fff; border: 1px solid var(--ff-line); border-radius: 3px;
+  color: #333b49;
+}
+.ff-status-cancel:hover { background: #e8effb; }
+.ff-notice {
+  margin-left: auto; font: inherit; font-size: 10.5px; cursor: pointer;
+  padding: 2px 9px;
+  background: #fdeccd; border: 1px solid #d09a2c; color: #6b4700;
+}
+
+/* --- I/O table ---------------------------------------------------------- */
+.ff-io { flex: 1; min-height: 0; overflow: auto; background: #fff; }
+.ff-io::-webkit-scrollbar { width: 14px; }
+.ff-io::-webkit-scrollbar-thumb {
+  background: #c3cad6; border: 3px solid #fff; border-radius: 7px;
+}
+.ff-io::-webkit-scrollbar-track { background: #f1f3f7; }
+.ff-io-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; font-size: 11px; color: var(--ff-dim);
+  background: var(--ff-face); border-bottom: 1px solid var(--ff-line);
+  position: sticky; top: 0; z-index: 1;
+}
+.ff-io-count { margin-left: auto; }
+.ff-io-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .ff-io-table th {
-  text-align: left; padding: 6px 10px; letter-spacing: .14em; font-weight: 400;
-  color: #3f6e55; border-bottom: 1px solid rgba(78,240,138,.24);
+  text-align: left; padding: 5px 10px; font-weight: 600;
+  color: #333b49; background: var(--ff-face-2);
+  border-bottom: 1px solid var(--ff-line);
 }
 .ff-io-table td {
-  padding: 5px 10px; border-bottom: 1px solid rgba(78,240,138,.07); color: #4c7f63;
+  padding: 3px 10px; border-bottom: 1px solid #eceff4; color: #333b49;
 }
-.ff-io-addr { color: #8ef0b0; width: 90px; letter-spacing: .06em; }
-.ff-io-sym { color: #6fbf90; width: 150px; }
-.ff-io-type { width: 70px; opacity: .6; }
+.ff-io-table tbody tr:nth-child(even) td { background: #f8fafc; }
+.ff-io-addr {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--ff-blue); width: 96px;
+}
+.ff-io-sym { width: 168px; color: #16202e; }
+.ff-io-type { width: 62px; color: var(--ff-dim); }
 .ff-io-val {
-  width: 70px; text-align: center; font-weight: 700;
-  color: #2c4b39; background: rgba(0,0,0,.35);
+  width: 62px; text-align: center; font-weight: 700;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #6b7382; background: #eef1f5;
 }
-.ff-io-val[data-s="2"] {
-  color: #0a0c10; background: #4ef08a; text-shadow: none;
-  box-shadow: 0 0 12px rgba(78,240,138,.45);
-}
-.ff-io-desc { color: #2f5b45; font-size: 10px; }
+.ff-io-val[data-s="2"] { color: #06340f; background: #7ce894; }
+.ff-io-desc { color: var(--ff-dim); font-size: 10.5px; }
 
-/* --- deck -------------------------------------------------------------- */
+/* --- deck --------------------------------------------------------------- */
 .ff-deck {
   position: relative;
   height: 30px;
-  background: linear-gradient(180deg, #262a31 0%, #14161a 55%, #0b0d10 100%);
-  border: 1px solid #2c3138; border-top: none;
+  background: linear-gradient(180deg, #3f444c 0%, #23262c 55%, #16181c 100%);
+  border: 1px solid #494f58; border-top: none;
   border-radius: 0 0 12px 12px;
   box-shadow: 0 24px 50px rgba(0,0,0,.7);
 }
 .ff-hinge {
   position: absolute; top: 0; left: 12%; right: 12%; height: 4px;
-  background: linear-gradient(180deg, #0a0c10, #33383f);
+  background: linear-gradient(180deg, #0a0c10, #4b515a);
   border-radius: 0 0 3px 3px;
 }
 .ff-keys {
   position: absolute; top: 11px; left: 8%; right: 8%; height: 9px;
   background:
-    repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 12px, rgba(0,0,0,0) 12px 15px);
-  opacity: .5;
+    repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 12px, rgba(0,0,0,0) 12px 15px);
+  opacity: .6;
 }
 .ff-plate {
   position: absolute; right: 16px; bottom: 4px;
-  font-size: 8px; letter-spacing: .22em; color: #4a5058;
+  font-size: 8px; letter-spacing: .22em; color: #6b7280;
 }
 `
