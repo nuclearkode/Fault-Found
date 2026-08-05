@@ -127,12 +127,19 @@ function ClickOverlay({ label, hint, onStart }: {
 const DEV_SCENARIO = 'S02'
 
 /**
- * Countdown override, in seconds. S02 allows 900 — the right number to play
- * against and a poor one to test against, because nothing about the failure path
- * can be seen inside a quarter of an hour. Set to `undefined` to use the
- * scenario's own limit.
+ * Countdown override, in seconds, applied only OUTSIDE production.
+ *
+ * 30 s is the right number to test the failure path against — nothing about the
+ * chase or the debrief can be seen inside the scenarios' authored 600-780 s. It
+ * is the wrong number to hand to a player: the supervisor arrives before you can
+ * reach the machine, so the game reads as broken rather than tense.
+ *
+ * Keyed on NODE_ENV rather than a constant somebody has to remember to flip. A
+ * shipped build that still had a 30-second timer in it would be a bad first
+ * impression that nobody would recognise as a stray dev flag.
  */
-const DEV_TIME_LIMIT: number | undefined = 30
+const DEV_TIME_LIMIT: number | undefined =
+  process.env.NODE_ENV === 'production' ? undefined : 30
 
 /**
  * Dev-only handles on the live scene and physics world, at `window.__scene` and
