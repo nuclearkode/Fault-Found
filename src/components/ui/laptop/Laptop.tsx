@@ -179,6 +179,22 @@ export function Laptop() {
 
               <footer className="ff-statusbar">
                 <span className="ff-sb-pane">2:0000</span>
+                {/*
+                  The key, and it is not decoration.
+
+                  This ladder has THREE states where a real RSLogix screen has
+                  two: it separates "this contact is made" from "power actually
+                  reaches it". That is the more useful distinction — a made
+                  contact on a dead branch is exactly the thing a technician
+                  needs to notice — but with no key it reads as a fault in the
+                  display, because a bit showing 1 in Data Files can appear
+                  amber here and the player has no way to learn why.
+                */}
+                <span className="ff-sb-key" aria-label="Colour key">
+                  <i className="ff-key-sw ff-key-cold" /> open
+                  <i className="ff-key-sw ff-key-made" /> made, not fed
+                  <i className="ff-key-sw ff-key-live" /> powered
+                </span>
                 <span className="ff-sb-warn">
                   The line is running — the shift clock does not stop for this.
                 </span>
@@ -652,6 +668,22 @@ const CSS = `
   color: #6b7382; background: #eef1f5;
 }
 .ff-io-val[data-s="2"] { color: #06340f; background: #7ce894; }
+
+/* Colour key in the status bar. Swatches are drawn from the same three custom
+   properties the rungs use, so the key cannot describe a palette the ladder no
+   longer has. */
+.ff-sb-key {
+  display: flex; align-items: center; gap: 0.3rem;
+  color: var(--ff-dim); white-space: nowrap;
+}
+.ff-key-sw {
+  width: 12px; height: 3px; border-radius: 1px;
+  margin-left: 0.55rem; flex: none;
+}
+.ff-key-sw:first-child { margin-left: 0; }
+.ff-key-cold { background: var(--ff-blue); }
+.ff-key-made { background: var(--ff-amber); }
+.ff-key-live { background: var(--ff-green); }
 .ff-io-desc { color: var(--ff-dim); font-size: 10.5px; }
 
 /* --- deck --------------------------------------------------------------- */
