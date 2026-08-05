@@ -145,7 +145,13 @@ export function FirstRunHints() {
       <div style={{ color: DIM, lineHeight: 1.6, marginBottom: '0.75rem' }}>
         1 · CABINET DOOR&nbsp;&nbsp;[E]<br />
         2 · MAIN ISOLATOR&nbsp;&nbsp;[E] → LOCKED OFF<br />
-        3 · then the failed part&nbsp;&nbsp;[E]
+        3 · then the failed part&nbsp;&nbsp;[E]<br />
+        {/* Step 4 is load-bearing, not a flourish. winRun() refuses to score a
+            win while the isolator is still locked off, so a first-time player
+            who follows 1-3 and stops has done the job correctly and is left
+            staring at a dead line with the clock running. The crosshair's
+            refusal panel carries the same fourth step for the same reason. */}
+        4 · MAIN ISOLATOR&nbsp;&nbsp;[E] → back on, to test
       </div>
 
       <div style={{
