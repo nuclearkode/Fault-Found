@@ -48,8 +48,10 @@ function Glyph({ kind }: { kind: 'xic' | 'xio' | 'ote' | 'branch' }) {
   )
 }
 
+// `lastDownload` is cleared by laptopStore.resetForRun, so 0 means "nothing has
+// been written to THIS processor" — this shift, not this browser session.
 const stamp = (ms: number): string => {
-  if (ms === 0) return 'none this session'
+  if (ms === 0) return 'none this shift'
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
 }

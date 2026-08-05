@@ -83,6 +83,56 @@ function settle(root: LadderNode, path: LadderPath): LadderPath | null {
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /**
+ * The canonical spelling of a condition string.
+ *
+ * Drafts are always `serializeCondition` output. The running program's condition
+ * is whatever the scenario JSON spells, which may differ purely typographically
+ * (`NOT A AND (B OR C)` vs extra spaces, redundant parens). Comparing a draft to
+ * the raw text would therefore call a cosmetic round trip an edit, so both sides
+ * are put through the parser before anything is compared.
+ *
+ * Unparseable text can only be the scenario's own — a draft is serialised from a
+ * tree — so falling back to the trimmed string is safe and keeps the comparison
+ * total.
+ */
+function canonical(condition: string): string {
+  try {
+    return serializeCondition(parseCondition(condition))
+  } catch {
+    return condition.trim()
+  }
+}
+
+/**
+ * Does this draft say exactly what the processor is already running?
+ *
+ * A draft that survives a round trip back to the program it started from is not
+ * an edit, and must not be counted as one anywhere: not in the pending count on
+ * the online bar, not on the DOWNLOAD button, and not as the EDITED badge on the
+ * rung. Toggling a contact type twice is the ordinary way to produce one.
+ */
+export function isNoOpDraft(draft: string, condition: string): boolean {
+  return draft === canonical(condition)
+}
+
+/**
+ * Store an edited condition, or drop the entry entirely when the edit undid
+ * itself. This is the single place the "a rung with no entry in `drafts` is
+ * untouched" invariant is enforced.
+ */
+function withDraft(
+  drafts: Record<number, string>,
+  rungId: number,
+  next: string,
+  condition: string,
+): Record<number, string> {
+  const out = { ...drafts }
+  if (isNoOpDraft(next, condition)) delete out[rungId]
+  else out[rungId] = next
+  return out
+}
+
+/**
  * The maintenance laptop's own state.
  *
  * The important idea here is the DRAFT. Editing a rung must never touch
@@ -95,7 +145,11 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
  * the way a real processor works, and exactly where the player should feel the
  * commitment.
  *
- * A rung with no entry in `drafts` is untouched. That is the whole EDITED test.
+ * A rung with no entry in `drafts` is untouched. That is the whole EDITED test,
+ * and it holds in both directions: an edit that lands back on the running
+ * condition REMOVES the entry (see `withDraft`), so the pending count, the
+ * DOWNLOAD button and the per-rung badge can never disagree about whether a rung
+ * has been changed.
  *
  * Every tree operation lives HERE rather than in the view, because two views —
  * the ladder and the instruction toolbar — issue the same edits and they must
@@ -119,6 +173,26 @@ interface LaptopState {
   /** The contact whose address is being typed, if any. */
   editing: LadderTarget | null
   beginEdit: (t: LadderTarget | null) => void
+
+  /**
+   * An insert that has been placed but not yet accepted.
+   *
+   * Dropping an instruction writes a draft immediately — it has to, because the
+   * contact must be drawn before its address can be picked off it. Without a way
+   * back that makes the insert unconditional: closing the address popover would
+   * leave a contact carrying its neighbour's address in the program, and the only
+   * escape would be REVERT RUNG, which also throws away every other edit on that
+   * rung. So the draft as it stood BEFORE the insert is kept here (`null` meaning
+   * "there was no draft"), and dismissing the popover puts it back exactly.
+   *
+   * Picking an address — or any other edit — accepts the insert and clears this.
+   */
+  pendingInsert: { rungId: number; path: LadderPath; restore: string | null } | null
+  /**
+   * Dismiss the address popover. Undoes a still-unaccepted insert; on an existing
+   * contact it just closes.
+   */
+  cancelEdit: () => void
 
   /**
    * Run a pure op from `@/engine/ladder` against one rung's current tree and
@@ -159,12 +233,38 @@ interface LaptopState {
    * there is nothing pending, which keeps the button idempotent.
    */
   download: () => number
-  /** Epoch ms of the last successful download; 0 if none this session. */
+  /** Epoch ms of the last successful download; 0 if none THIS RUN. */
   lastDownload: number
+
+  /**
+   * Put the terminal back the way a fresh job finds it.
+   *
+   * `clearDrafts` is not enough: it is also the DISCARD ALL EDITS button and the
+   * "the program was replaced" handler, so it deliberately leaves the download
+   * stamp and the open document alone. A new run, though, must not inherit the
+   * previous job's "Last download 21:14:07" — the processor it refers to is gone.
+   */
+  resetForRun: () => void
 
   /** One line of feedback in the status bar — an error, or a confirmation. */
   notice: string | null
   setNotice: (n: string | null) => void
+}
+
+/**
+ * The state patch that undoes a still-unaccepted insert.
+ *
+ * Written as a patch rather than an action so `select` and `cancelEdit` — the
+ * two ways the address popover can go away without an address being picked —
+ * cannot drift apart.
+ */
+function rollback(s: LaptopState): Partial<LaptopState> {
+  const pending = s.pendingInsert
+  if (pending === null) return { editing: null, pendingInsert: null }
+  const drafts = { ...s.drafts }
+  if (pending.restore === null) delete drafts[pending.rungId]
+  else drafts[pending.rungId] = pending.restore
+  return { drafts, editing: null, pendingInsert: null }
 }
 
 export const useLaptopStore = create<LaptopState>()((set, get) => ({
@@ -173,13 +273,27 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
 
   drafts: {},
   selection: null,
-  select: (sel) => set({ selection: sel, editing: null }),
+  select: (sel) => set((s) => ({ ...rollback(s), selection: sel })),
 
   armed: null,
   arm: (i) => set((s) => ({ armed: s.armed === i ? null : i, notice: null })),
 
   editing: null,
   beginEdit: (t) => set({ editing: t }),
+
+  pendingInsert: null,
+  cancelEdit: () =>
+    set((s) => {
+      const pending = s.pendingInsert
+      return {
+        ...rollback(s),
+        // The contact the cursor was on has just stopped existing. Leaving the
+        // rung itself selected keeps the player where they were.
+        selection:
+          pending === null ? s.selection : { rungId: pending.rungId, path: null },
+        notice: null,
+      }
+    }),
 
   applyOp: (target, op) => {
     const rung = useGameStore.getState().rungs.find((r) => r.id === target.rungId)
@@ -188,10 +302,14 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
     try {
       const next = op(parseCondition(source), target.path)
       const settled = settle(next, target.path)
+      const text = serializeCondition(next)
       set((s) => ({
-        drafts: { ...s.drafts, [target.rungId]: serializeCondition(next) },
+        drafts: withDraft(s.drafts, target.rungId, text, rung.condition),
         selection: { rungId: target.rungId, path: settled },
         editing: null,
+        // Any deliberate edit accepts whatever was pending, including the
+        // address pick that closes the popover on a fresh insert.
+        pendingInsert: null,
         notice: null,
       }))
     } catch (e) {
@@ -202,7 +320,8 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
   insertContact: (rungId, path, mode, tag, negated) => {
     const rung = useGameStore.getState().rungs.find((r) => r.id === rungId)
     if (rung === undefined) return
-    const source = get().drafts[rungId] ?? rung.condition
+    const before = get().drafts[rungId]
+    const source = before ?? rung.condition
     try {
       const root = parseCondition(source)
       const fresh = contact(PLACEHOLDER, negated)
@@ -225,9 +344,11 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
       const at = cell.path
 
       set((s) => ({
-        drafts: { ...s.drafts, [rungId]: serializeCondition(landed) },
+        drafts: withDraft(s.drafts, rungId, serializeCondition(landed), rung.condition),
         selection: { rungId, path: at },
         editing: { rungId, path: at },
+        // Provisional until an address is picked — see `pendingInsert`.
+        pendingInsert: { rungId, path: at, restore: before ?? null },
         notice: null,
       }))
     } catch (e) {
@@ -236,10 +357,15 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
   },
 
   setDraft: (rungId, tree) =>
-    set((s) => ({
-      drafts: { ...s.drafts, [rungId]: serializeCondition(tree) },
-      notice: null,
-    })),
+    set((s) => {
+      const rung = useGameStore.getState().rungs.find((r) => r.id === rungId)
+      if (rung === undefined) return {}
+      return {
+        drafts: withDraft(s.drafts, rungId, serializeCondition(tree), rung.condition),
+        pendingInsert: null,
+        notice: null,
+      }
+    }),
 
   revert: (rungId) =>
     set((s) => {
@@ -250,14 +376,33 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
         drafts,
         selection: clears ? null : s.selection,
         editing: s.editing?.rungId === rungId ? null : s.editing,
+        pendingInsert: s.pendingInsert?.rungId === rungId ? null : s.pendingInsert,
         notice: null,
       }
     }),
 
   clearDrafts: () =>
-    set({ drafts: {}, selection: null, editing: null, armed: null, notice: null }),
+    set({
+      drafts: {},
+      selection: null,
+      editing: null,
+      armed: null,
+      pendingInsert: null,
+      notice: null,
+    }),
 
   lastDownload: 0,
+  resetForRun: () =>
+    set({
+      tab: 'ladder',
+      drafts: {},
+      selection: null,
+      editing: null,
+      armed: null,
+      pendingInsert: null,
+      lastDownload: 0,
+      notice: null,
+    }),
   download: () => {
     const drafts = get().drafts
     const ids = Object.keys(drafts)
@@ -277,6 +422,7 @@ export const useLaptopStore = create<LaptopState>()((set, get) => ({
       selection: null,
       editing: null,
       armed: null,
+      pendingInsert: null,
       lastDownload: Date.now(),
       notice: null,
     })

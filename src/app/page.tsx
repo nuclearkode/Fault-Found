@@ -9,6 +9,7 @@ import { Briefing } from '@/components/ui/Briefing'
 import { PointerLockWarden } from '@/components/ui/PointerLockWarden'
 import { Laptop } from '@/components/ui/laptop/Laptop'
 import { ReferenceBook } from '@/components/ui/book/ReferenceBook'
+import { FirstRunHints } from '@/components/ui/FirstRunHints'
 import { Keymap } from '@/input/keymap'
 
 export default function Home() {
@@ -28,6 +29,11 @@ export default function Home() {
           those can legitimately open on top of an overlay, never the reverse. */}
       <Laptop />
       <ReferenceBook />
+      {/* The [L] and [B] keys are only worth binding if somebody learns they
+          exist. Self-gates on localStorage and on being on shift, so it is a
+          first-visit-only card and never appears again. Above the overlays it
+          advertises, below the menus. */}
+      <FirstRunHints />
       <JobComplete />
       <PauseMenu />
       {/* Last in the stack — the debrief covers everything, crosshair included */}

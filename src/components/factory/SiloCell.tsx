@@ -725,9 +725,20 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
       if (ctl.kind === 'door') {
         label = `CABINET DOOR — ${phys.current.doorOpen ? 'OPEN' : 'CLOSED'}  [E]`
       } else if (ctl.kind === 'loto') {
-        label = locked2
-          ? 'MAIN ISOLATOR — LOCKED OFF · SAFE TO WORK  [E]'
-          : 'MAIN ISOLATOR — ON · LIVE  [E]'
+        // The handle is behind the cabinet door, and pressing [E] with the door
+        // shut is refused in the interact handler with nothing but a
+        // console.warn — invisible to the player. Dropping the [E] marks the
+        // label BLOCKED under the convention Crosshair reads (see isBlocked),
+        // so the reticle goes red and states the missing step BEFORE the press
+        // that would have failed in silence.
+        label = !phys.current.doorOpen
+          ? 'MAIN ISOLATOR — BEHIND THE CABINET DOOR'
+          : locked2
+            // Once locked off, the next step is not "lock off harder" — it is to
+            // repair and then re-energise, because a win is not scored while the
+            // isolator is off. Say so on the handle itself.
+            ? 'MAIN ISOLATOR — LOCKED OFF · SAFE TO WORK · [E] to restore'
+            : 'MAIN ISOLATOR — ON · LIVE  [E]'
       } else if (ctl.kind === 'repair') {
         label = locked2
           ? 'DRIVE ROLLER — re-lag and re-tension  [E]'

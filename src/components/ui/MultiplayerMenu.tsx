@@ -1,7 +1,13 @@
 'use client'
 
 /**
- * MultiplayerMenu — the crew panel, reachable from the title screen.
+ * MultiplayerMenu — the crew panel.
+ *
+ * NOT SHIPPED IN THIS BUILD. page.tsx does not mount it and MULTIPLAYER_ENABLED
+ * below is false; the reasoning is written out there. Everything past that flag
+ * describes how it behaves when it is switched on, which is how it was left:
+ * working, honest about what the transport can actually do, and one line from
+ * being reachable again.
  *
  * Lives outside the Canvas with the rest of the full-screen DOM, because drei's
  * PointerLockControls binds click-to-lock to `selector="canvas"` and anything
@@ -23,8 +29,29 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useLobbyStore, MAX_NAME } from '@/stores/lobbyStore'
+import { useLobbyStore, cleanName, MAX_NAME } from '@/stores/lobbyStore'
 import { codeProblem, normaliseCode, CODE_LENGTH, type AvatarVariant } from '@/net/session'
+
+/**
+ * OFF, deliberately, and the one line to change when it is not.
+ *
+ * Multiplayer is not in this release. What exists is groundwork: the lobby, the
+ * codes, the roster and the join lifecycle are real and correct, and the
+ * transport underneath them is a BroadcastChannel, which reaches other TABS of
+ * this browser and nothing else. There is no network and the machine is not
+ * shared.
+ *
+ * A tester who finds this panel will do the obvious thing — take a code, send it
+ * to someone, watch nothing happen — and file a bug, and be right to. No
+ * disclaimer prevents that; it only costs them the time it takes to disbelieve
+ * it. The launcher also sits bottom-centre on the title screen, arguing with the
+ * one instruction that screen exists to give. So the button is not rendered.
+ *
+ * Hiding it costs nothing: with page.tsx not mounting <MultiplayerMenu />, none
+ * of this reaches the client bundle, while the file stays type-checked, linted
+ * and honest. Flip this to true and mount the component and the panel is back.
+ */
+const MULTIPLAYER_ENABLED: boolean = false
 
 const RED = '#e63946'
 const MONO = '"JetBrains Mono", monospace'
@@ -135,6 +162,8 @@ function Panel() {
   const host = useLobbyStore(s => s.host)
   const join = useLobbyStore(s => s.join)
   const leave = useLobbyStore(s => s.leave)
+  const clearError = useLobbyStore(s => s.clearError)
+  const localId = useLobbyStore(s => s.localId)
 
   // The tab follows the role when there is one — reopening the panel while
   // hosting should not present the SOLO tab as if nothing were running.
@@ -369,7 +398,11 @@ function Panel() {
                 spellCheck={false}
                 value={draft}
                 placeholder="ABC234"
-                onChange={(e) => setDraft(normaliseCode(e.target.value).slice(0, CODE_LENGTH + 2))}
+                onChange={(e) => {
+                  // Editing the code retires the verdict on the last one.
+                  clearError()
+                  setDraft(normaliseCode(e.target.value).slice(0, CODE_LENGTH + 2))
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter') doJoin() }}
                 aria-invalid={problem !== null}
                 style={{
@@ -393,6 +426,26 @@ function Panel() {
           </div>
         )}
 
+        {/*
+          ── Error ──────────────────────────────────────────────────────────
+          Outside the roster block, which is where it used to live, and which
+          only renders when role !== 'solo'. The error join() sets for a bad
+          code is set while the role is still 'solo' — join() returns before it
+          ever opens a session — so the one message this panel most needed to
+          show was the one message it structurally could not. Errors are shown
+          wherever they come from.
+        */}
+        {error && (
+          <div style={{
+            marginTop: '1rem', fontSize: '0.72rem', lineHeight: 1.5, color: RED,
+            fontFamily: MONO,
+            background: 'rgba(230,57,70,0.08)', border: '1px solid rgba(230,57,70,0.25)',
+            borderRadius: '4px', padding: '0.5rem 0.65rem',
+          }}>
+            {error}
+          </div>
+        )}
+
         {/* ── Status and roster ────────────────────────────────────────────── */}
         {role !== 'solo' && (
           <div style={{ marginTop: '1.3rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
@@ -406,7 +459,11 @@ function Panel() {
 
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <li style={rowStyle(true)}>
-                <span style={{ color: INK }}>{localName.trim() || 'TECHNICIAN'}</span>
+                {/* The name the OTHERS see, not this panel's placeholder. An
+                    unnamed player is TECH-4F2A on every roster in the room and
+                    showing them 'TECHNICIAN' here would make their own row the
+                    only one that lies. */}
+                <span style={{ color: INK }}>{cleanName(localName, localId)}</span>
                 <span style={{ fontSize: '0.6rem', opacity: 0.5, letterSpacing: '0.12em' }}>
                   YOU · {role.toUpperCase()} · {localVariant.toUpperCase()}
                 </span>
@@ -421,20 +478,15 @@ function Panel() {
               ))}
               {peerIds.length === 0 && (
                 <li style={{ ...rowStyle(false), opacity: 0.45, fontStyle: 'italic' }}>
-                  Nobody else yet.
+                  {/* A guest that is still 'connecting' has not found the room
+                      yet — saying "nobody else" would report the wrong fact and
+                      then contradict itself six seconds later. */}
+                  {status === 'connecting'
+                    ? 'Looking for the session…'
+                    : 'Nobody else yet.'}
                 </li>
               )}
             </ul>
-
-            {error && (
-              <div style={{
-                marginTop: '0.7rem', fontSize: '0.72rem', color: RED, fontFamily: MONO,
-                background: 'rgba(230,57,70,0.08)', border: '1px solid rgba(230,57,70,0.25)',
-                borderRadius: '4px', padding: '0.5rem 0.65rem',
-              }}>
-                {error}
-              </div>
-            )}
 
             <div style={{ marginTop: '0.9rem' }}>
               <Btn variant="quiet" onClick={() => { leave(); setTab('solo') }}>Leave session</Btn>
@@ -477,7 +529,14 @@ export function MultiplayerMenu() {
   const peerCount = useLobbyStore(s => Object.keys(s.peers).length)
   const hydrate = useLobbyStore(s => s.hydrate)
 
-  useEffect(() => { hydrate() }, [hydrate])
+  useEffect(() => {
+    if (!MULTIPLAYER_ENABLED) return
+    hydrate()
+  }, [hydrate])
+
+  // See MULTIPLAYER_ENABLED. After the hooks, never before — an early return
+  // above them makes every hook below it conditional.
+  if (!MULTIPLAYER_ENABLED) return null
 
   if (started) return null
 

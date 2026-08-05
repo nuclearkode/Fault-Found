@@ -121,8 +121,16 @@ export interface PlayerState {
  * player and JSON key names are most of a movement packet.
  */
 export type NetMessage =
-  /** Sent on connect and in reply to another peer's hello. Identity only. */
-  | { k: 'hello'; player: PlayerState }
+  /**
+   * Sent on connect and in reply to another peer's hello. Identity only.
+   *
+   * `r` marks THIS hello as a reply, and it is the entire reason the handshake
+   * terminates: a hello without it must always be answered, a hello with it
+   * must never be. Putting the guard on the message rather than on the sender's
+   * memory of who it has met is what makes the exchange symmetric — see the
+   * note on `greeted` in createSession().
+   */
+  | { k: 'hello'; player: PlayerState; r?: boolean }
   /** Movement. The only high-rate message. */
   | { k: 'move'; id: PeerId; p: [number, number, number]; y: number; m: boolean }
   /** Deliberate departure. Absence of heartbeat covers the crash case. */
@@ -353,6 +361,14 @@ export interface SessionOptions {
   name: string
   variant: AvatarVariant
   /**
+   * The peer id to use. One is minted when this is absent.
+   *
+   * The lobby passes one in, because the name shown for a player who never
+   * typed one is derived from their id (TECH-4F2A) and the name has to be
+   * settled before the session exists — it goes out in the very first hello.
+   */
+  id?: PeerId
+  /**
    * Defaults to 'local' for solo and 'loopback' otherwise.
    *
    * A TransportFactory may be passed directly. That is how a real transport
@@ -399,16 +415,32 @@ const SEND_INTERVAL_MS = 1000 / SEND_HZ
 const POS_EPSILON = 0.02
 const YAW_EPSILON = 0.02
 
-function makePeerId(): PeerId {
+/**
+ * A fresh peer id. Exported because the lobby needs one BEFORE it builds the
+ * session — the default display name is derived from it.
+ */
+export function makePeerId(): PeerId {
   const c = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : undefined
   if (c && typeof c.randomUUID === 'function') return c.randomUUID().slice(0, 8)
   return Math.random().toString(36).slice(2, 10)
 }
 
+/**
+ * How long a guest waits for somebody in the room to answer before we call the
+ * code wrong.
+ *
+ * A room that exists answers in milliseconds — the transport announces on open
+ * and an occupant replies to a newcomer immediately — so this is not a latency
+ * budget, it is the interval after which silence means something. Long enough
+ * that a busy tab is not accused of typing badly, short enough that nobody
+ * stares at a spinner wondering.
+ */
+const JOIN_TIMEOUT_MS = 6000
+
 type AnyHandler = (payload: never) => void
 
 export function createSession(opts: SessionOptions): Session {
-  const id = makePeerId()
+  const id = opts.id ?? makePeerId()
   const role = opts.role
   const code = role === 'solo' ? null : (opts.code ?? null)
   const factory: TransportFactory =
@@ -422,7 +454,32 @@ export function createSession(opts: SessionOptions): Session {
   let status: SessionStatus = role === 'solo' ? 'connected' : 'connecting'
   let closed = false
 
+  /**
+   * Events raised before this function has returned have nowhere to go: the
+   * caller cannot possibly have subscribed yet, because it does not have the
+   * session. A transport is entitled to report a peer, or a whole hello, from
+   * inside its own constructor — the in-memory bus used to test the handshake
+   * does exactly that, and so will any transport that finds a connection
+   * already open — and every one of those events used to be emitted into an
+   * empty listener map and lost. The status case happened to be covered because
+   * the store reads status() directly after attaching; a 'join' was simply gone,
+   * leaving a peer who is on the wire and not in the roster.
+   *
+   * So emissions queue until the end of the constructor and are flushed on the
+   * next microtask, by which point the synchronous `attach(createSession(...))`
+   * the store does has subscribed. `live` stays false until the flush actually
+   * runs, so anything emitted in the gap queues behind the backlog rather than
+   * overtaking it and arriving out of order.
+   */
+  let live = false
+  const backlog: Array<() => void> = []
+
   function emit<K extends SessionEvent>(ev: K, payload: SessionEvents[K]) {
+    if (!live) { backlog.push(() => deliver(ev, payload)); return }
+    deliver(ev, payload)
+  }
+
+  function deliver<K extends SessionEvent>(ev: K, payload: SessionEvents[K]) {
     const set = listeners.get(ev)
     if (!set) return
     // Copied before iterating: a handler that unsubscribes itself — which the
@@ -441,20 +498,74 @@ export function createSession(opts: SessionOptions): Session {
   }
 
   /**
-   * Peers we have already introduced ourselves to.
+   * Peers we have already introduced ourselves to, UNPROMPTED.
    *
-   * This exists because "answer a hello with a hello" — which you need, or the
-   * peer who was already in the room never learns the newcomer's name — is an
-   * infinite volley if you do it unconditionally. Each side answers the answer,
-   * forever, at whatever rate the transport can manage. Greeting each peer once
-   * terminates it in three messages.
+   * The volley this used to guard is real: "answer a hello with a hello" —
+   * which you need, or the peer who was already in the room never learns the
+   * newcomer's name — never terminates if you do it unconditionally, because
+   * each side answers the answer forever, at whatever rate the transport can
+   * manage. The mistake was guarding the ANSWER on this set. It made the
+   * exchange asymmetric, and the failure it caused is not exotic:
+   *
+   *   A and B are in a room and have met. B's tab goes to the background, where
+   *   browsers throttle timers to about one a minute, so its heartbeat stops. A
+   *   times B out and drops it — correctly; that is what the timeout is for. B
+   *   is still hearing A, so B drops nothing. B comes back to the foreground and
+   *   announces. A sees a new peer and re-introduces itself. B has met A before,
+   *   so the old guard swallowed B's reply — and A, which no longer knows who B
+   *   is, never hears the one message that would tell it. B is on the wire, in
+   *   the heartbeat, and permanently absent from A's roster.
+   *
+   * So this set now suppresses only the redundant unprompted announcement, and
+   * the thing that stops the volley is the `r` flag on the message itself: a
+   * reply is never replied to. The exchange is two messages instead of three,
+   * and it recovers from one side forgetting the other.
    */
   const greeted = new Set<PeerId>()
 
-  function greetOnce(peer: PeerId) {
+  /** Introduce ourselves to a peer we have just noticed. Once each. */
+  function announce(peer: PeerId) {
     if (greeted.has(peer)) return
     greeted.add(peer)
     send({ k: 'hello', player: self })
+  }
+
+  /**
+   * A guest's transport being open does not mean the code was right.
+   *
+   * Every transport here — and any real one — will happily open a channel named
+   * after six characters nobody is listening to, and report itself connected,
+   * because from the transport's point of view it IS connected. Reporting that
+   * up as success makes a typo indistinguishable from a room whose host has not
+   * arrived: both read "CONNECTED · nobody else yet", which is the single most
+   * confusing thing this menu could say. A guest is therefore not connected
+   * until somebody in the room answers, and if nobody does, that is an error
+   * with a sentence attached.
+   *
+   * Hosts and solo skip all of this: an empty room you opened yourself is not a
+   * failure, and solo never even builds a timer.
+   */
+  let arrived = role !== 'guest'
+  let arrivalTimer: ReturnType<typeof setTimeout> | null = null
+
+  function setStatus(s: SessionStatus, error?: string) {
+    status = s
+    emit('status', { status: s, error })
+  }
+
+  function clearArrivalTimer() {
+    if (arrivalTimer === null) return
+    clearTimeout(arrivalTimer)
+    arrivalTimer = null
+  }
+
+  /** Somebody in the room answered: the code was real. Recoverable, and late
+   *  arrivals count, so a guest who timed out still joins if the host shows up. */
+  function noteArrival() {
+    if (arrived || closed) return
+    arrived = true
+    clearArrivalTimer()
+    setStatus('connected')
   }
 
   const hooks: TransportHooks = {
@@ -462,7 +573,7 @@ export function createSession(opts: SessionOptions): Session {
     // not who. Introduce ourselves and wait for its hello. The 'join' event
     // fires from the hello handler, not here, so the lobby never shows a
     // nameless row that fills itself in a moment later.
-    onPeer: greetOnce,
+    onPeer: announce,
     onLeave: (peer) => {
       greeted.delete(peer)
       emit('leave', peer)
@@ -473,8 +584,11 @@ export function createSession(opts: SessionOptions): Session {
       if (!msg || typeof msg !== 'object' || typeof msg.k !== 'string') return
 
       if (msg.k === 'hello') {
+        // Reply unless this was itself a reply. Unconditionally: see `greeted`.
+        greeted.add(from)
+        if (!msg.r) send({ k: 'hello', player: self, r: true })
+        noteArrival()
         emit('join', msg.player)
-        greetOnce(from)
       } else if (msg.k === 'bye') {
         greeted.delete(msg.id)
         emit('leave', msg.id)
@@ -483,8 +597,22 @@ export function createSession(opts: SessionOptions): Session {
     },
     onStatus: (s, error) => {
       if (closed) return
-      status = s
-      emit('status', { status: s, error })
+      if (s === 'connected' && !arrived) {
+        // The channel is up; the room is not confirmed. Hold at 'connecting'
+        // and start the clock.
+        if (arrivalTimer === null) {
+          arrivalTimer = setTimeout(() => {
+            arrivalTimer = null
+            if (closed || arrived) return
+            setStatus('error', code
+              ? `Nobody answered ${code}. Check the code, and check the host has opened their session.`
+              : 'Nobody answered that code. Check it with the host.')
+          }, JOIN_TIMEOUT_MS)
+        }
+        setStatus('connecting')
+        return
+      }
+      setStatus(s, error)
     },
   }
 
@@ -492,7 +620,7 @@ export function createSession(opts: SessionOptions): Session {
    * Assigned below, and null until then — which matters, because a transport is
    * entitled to report a peer from inside its own constructor. The in-memory
    * bus used to test the handshake does exactly that, and so, plausibly, will a
-   * transport that finds an already-open connection. When it happens, greetOnce
+   * transport that finds an already-open connection. When it happens, announce()
    * runs before `factory` has returned, send() is reached with no transport, and
    * a plain `const transport = factory(...)` throws "cannot access before
    * initialization" out through the store action that opened the session.
@@ -519,7 +647,7 @@ export function createSession(opts: SessionOptions): Session {
   let lastYaw = NaN
   let lastMoving = false
 
-  return {
+  const api: Session = {
     id,
     role,
     code,
@@ -561,16 +689,31 @@ export function createSession(opts: SessionOptions): Session {
       if (closed) return
       send({ k: 'bye', id })
       closed = true
+      clearArrivalTimer()
       status = 'closed'
-      emit('status', { status: 'closed' })
+      // Straight to the handlers. A close is the last thing anyone hears, and
+      // queueing it behind a microtask that may never be reached — leave() drops
+      // its subscriptions on the next line — would be a status nobody gets.
+      deliver('status', { status: 'closed' })
       open.close()
       listeners.clear()
+      backlog.length = 0
     },
   }
+
+  // Everything the transport said while it was being built is still queued. The
+  // caller is one `return` away from being able to subscribe; give it that, then
+  // let the events through in the order they happened.
+  queueMicrotask(() => {
+    live = true
+    for (const f of backlog.splice(0)) f()
+  })
+
+  return api
 }
 
 /** Start hosting. The code is on the returned session. */
-export function hostSession(opts: { name: string; variant: AvatarVariant }): Session {
+export function hostSession(opts: { name: string; variant: AvatarVariant; id?: PeerId }): Session {
   return createSession({ ...opts, role: 'host', code: makeShareCode() })
 }
 
@@ -579,7 +722,10 @@ export function hostSession(opts: { name: string; variant: AvatarVariant }): Ses
  * channel named after nonsense — the caller has codeProblem() to check first,
  * and this is the backstop.
  */
-export function joinSession(code: string, opts: { name: string; variant: AvatarVariant }): Session {
+export function joinSession(
+  code: string,
+  opts: { name: string; variant: AvatarVariant; id?: PeerId },
+): Session {
   const clean = normaliseCode(code)
   const problem = codeProblem(clean)
   if (problem) throw new Error(problem)

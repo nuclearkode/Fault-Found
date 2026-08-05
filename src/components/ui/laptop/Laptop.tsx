@@ -87,6 +87,7 @@ export function Laptop() {
   const setTab = useLaptopStore((s) => s.setTab)
   const pending = useLaptopStore((s) => Object.keys(s.drafts).length)
   const clearDrafts = useLaptopStore((s) => s.clearDrafts)
+  const resetForRun = useLaptopStore((s) => s.resetForRun)
 
   /**
    * Drafts belong to the program they were written against. When the running
@@ -95,6 +96,18 @@ export function Laptop() {
    * replaces `rungs` too and lands here harmlessly: it has already cleared.)
    */
   useEffect(() => useGameStore.subscribe((s) => s.rungs, clearDrafts), [clearDrafts])
+
+  /**
+   * A new RUN wipes the terminal, not just its drafts.
+   *
+   * The download stamp and the open document survive `clearDrafts` on purpose —
+   * that handler also runs on a download, which must not erase the timestamp it
+   * just set. But they are per-processor facts, so a fresh job that opened on
+   * Data Files showing "Last download 21:14:07" would be reporting a write to a
+   * machine the player never touched. `runNonce` is the one signal that means
+   * "different run" and nothing else; the scenario bootstrap keys off it too.
+   */
+  useEffect(() => useGameStore.subscribe((s) => s.runNonce, resetForRun), [resetForRun])
 
   if (!open) return null
 
@@ -467,7 +480,17 @@ const CSS = `
 .ff-empty, .ff-parse-error { padding: 18px; font-size: 12px; color: var(--ff-dim); }
 .ff-parse-error { color: var(--ff-red); }
 
-.ff-rung { display: flex; align-items: stretch; border-bottom: 1px solid #e3e7ee; }
+/* width:max-content is what makes the rung's own chrome — its selected
+   background, its separator, its gutter's right edge — run the whole length of a
+   rung that is wider than the pane. As a plain block it would be sized by the
+   SCROLL CONTAINER, so scrolling right ran off the end of its own row and the
+   selection highlight stopped in mid-air. min-width keeps short rungs full
+   width. */
+.ff-rung {
+  display: flex; align-items: stretch;
+  width: max-content; min-width: 100%;
+  border-bottom: 1px solid #e3e7ee;
+}
 .ff-rung-sel { background: #f6f9ff; }
 .ff-rung-end { color: var(--ff-blue); }
 
@@ -492,8 +515,10 @@ const CSS = `
 }
 
 /* No min-width:0 — the flex item must keep its content width so a wide rung
-   makes the pane scroll horizontally instead of being silently clipped. */
-.ff-rungbody { flex: 1; padding: 4px 0 2px; }
+   makes the pane scroll horizontally instead of being silently clipped. Basis
+   an auto basis rather than 0 for the same reason: under the row's max-content
+   sizing the body must ask for its real width, and still grow on a short rung. */
+.ff-rungbody { flex: 1 0 auto; padding: 4px 0 2px; }
 .ff-rung-head {
   display: flex; align-items: center; gap: 8px;
   padding: 0 10px 2px; min-height: 18px;
@@ -508,6 +533,7 @@ const CSS = `
   background: #fdeaea; border: 1px solid #d08a86; color: #8c1f18;
 }
 .ff-badge-eq { background: #fdeccd; border-color: #d09a2c; color: #7a5200; }
+.ff-offline-note { color: var(--ff-dim); font-size: 10px; letter-spacing: .02em; }
 .ff-revert {
   margin-left: auto; flex: none;
   font: inherit; font-size: 10.5px; cursor: pointer;
@@ -537,6 +563,21 @@ const CSS = `
 .ff-bar[data-s="2"] { stroke: var(--ff-green); stroke-width: 3.2; }
 .ff-coil { stroke: var(--ff-blue); stroke-width: 2.4; fill: none; }
 .ff-coil[data-s="2"] { stroke: var(--ff-green); stroke-width: 3.2; }
+
+/* AN EDITED RUNG IS NOT RUNNING, SO IT IS NOT COLOURED.
+   The shape drawn is the draft; the processor is still scanning what was
+   downloaded. Blue would claim "this rung is cold" and green would claim "power
+   is here" — both are assertions about a program that is not executing. Grey is
+   the only honest ink, and it is why a download visibly brings the rung back to
+   life. Placed after the state rules so it wins on equal specificity even if the
+   paint loop is ever allowed to write here again. */
+.ff-svg-offline .ff-rail { stroke: #c3cad6; stroke-width: 3; }
+.ff-svg-offline .ff-wire { stroke: #a4adbb; stroke-width: 1.6; }
+.ff-svg-offline .ff-bar { stroke: #98a2b1; stroke-width: 2.4; }
+.ff-svg-offline .ff-coil { stroke: #98a2b1; stroke-width: 2.4; }
+.ff-svg-offline .ff-addr { fill: #7a8494; }
+.ff-svg-offline .ff-chip { fill: #f1f3f7; stroke: #c3cad6; }
+.ff-svg-offline .ff-chip-t { fill: #838d9c; }
 
 .ff-addr {
   font-family: ui-monospace, Consolas, monospace;
@@ -602,6 +643,10 @@ const CSS = `
 .ff-pop-row:hover { background: #d7e6ff; }
 .ff-pop-cur { background: #eef3fd; }
 .ff-pop-new { background: #fff8e6; }
+/* The row Enter commits, marked so the list cannot promise something the
+   keyboard does not do. */
+.ff-pop-first { box-shadow: inset 2px 0 0 var(--ff-sel); }
+.ff-pop-enter { margin-left: auto; font-size: 11px; color: var(--ff-sel); }
 .ff-pop-id {
   font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
   color: var(--ff-blue); min-width: 62px;

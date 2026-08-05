@@ -19,6 +19,14 @@
  *    scan cycle is actually executing on the live machine — changes only when
  *    the player presses DOWNLOAD TO PLC.
  *
+ *    Which is exactly why an EDITED rung is drawn DEAD. The geometry on screen
+ *    is the draft, but the processor is still scanning the downloaded rung, so
+ *    animating the draft from live tags would be the display asserting something
+ *    false — and the one thing the player has to be able to trust is that green
+ *    means power. An edited rung therefore goes grey and says so, and the moment
+ *    it is downloaded it comes back to life. That transition is the feedback
+ *    that teaches what DOWNLOAD actually does.
+ *
  * The look is a light, dense, mouse-driven ladder editor: white canvas, blue
  * instructions, green power. Colour is CSS only (see the palette in Laptop.tsx);
  * the paint loop writes a single `data-s` character and the cascade does the
@@ -27,7 +35,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGameStore } from '@/stores/gameStore'
-import { useLaptopStore } from '@/stores/laptopStore'
+import { isNoOpDraft, useLaptopStore } from '@/stores/laptopStore'
 import {
   equivalent,
   evaluateFlow,
@@ -216,6 +224,13 @@ interface RungView {
   rung: Rung
   /** The condition being DRAWN — the draft if there is one, else the running one. */
   condition: string
+  /**
+   * The drawn condition is NOT what the processor is executing.
+   *
+   * Gates the live highlight: see the paint loop, and note that `laptopStore`
+   * guarantees a draft that matches the running program is deleted rather than
+   * kept, so this is never true of a rung that only looks edited.
+   */
   edited: boolean
   /** Edited, but computes the same function as what is running. */
   sameLogic: boolean
@@ -230,7 +245,7 @@ function buildViews(
   return rungs.map((rung, index) => {
     const draft = drafts[rung.id]
     const condition = draft ?? rung.condition
-    const edited = draft !== undefined && draft !== rung.condition
+    const edited = draft !== undefined && !isNoOpDraft(draft, rung.condition)
     let geom: Geometry | null = null
     let error: string | null = null
     try {
@@ -264,6 +279,13 @@ function usableAddress(text: string): boolean {
   return !ADDRESS_KEYWORDS.has(t.toUpperCase())
 }
 
+/** One row of the popover list — a real address, or the typed-in one. */
+interface Candidate {
+  id: string
+  label: string
+  isNew: boolean
+}
+
 /**
  * The inline operand editor — double-click an address and type.
  *
@@ -272,6 +294,14 @@ function usableAddress(text: string): boolean {
  * "retract" and not `I:1/03`. Typing an address the image has never heard of is
  * still allowed, and still flagged: writing a rung against a tag that doesn't
  * exist is a real mistake worth being able to make.
+ *
+ * THE LIST IS THE KEYBOARD'S CONTRACT. Every row that can be clicked is in one
+ * ordered list, the first row is marked, and Enter commits that first row —
+ * nothing else. The freeform row therefore sits BELOW the matches rather than
+ * above them: while a half-typed address still filters real tags, the thing
+ * Enter would take is the top match, and the list has to say so. An
+ * unrecognised address only becomes the Enter target once nothing in the image
+ * matches at all, which is exactly when the player meant it.
  */
 function AddressEditor({
   x,
@@ -288,7 +318,13 @@ function AddressEditor({
   onPick: (id: string) => void
   onClose: () => void
 }) {
-  const [query, setQuery] = useState('')
+  // Seeded with the address being edited, not blank. Blank meant the empty
+  // query matched every tag, so `candidates[0]` was simply whichever row sorts
+  // first in the I/O image and a reflexive Enter silently rewired the rung to
+  // an unrelated address. Seeding also gives the select() below something to
+  // select: the box opens with the old address highlighted, so typing replaces
+  // it and Enter on its own is a no-op instead of a random edit.
+  const [query, setQuery] = useState(current)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -306,10 +342,21 @@ function AddressEditor({
   const exact = tags.some((t) => t.id.toLowerCase() === q)
   const freeform = !exact && usableAddress(query) ? query.trim() : null
 
+  const candidates: Candidate[] = matches.map((t) => ({
+    id: t.id,
+    label: t.label,
+    isNew: false,
+  }))
+  if (freeform !== null) {
+    candidates.push({ id: freeform, label: 'not in the I/O image', isNew: true })
+  }
+
   const commit = (): void => {
-    const first = matches[0]
-    if (first !== undefined) return onPick(first.id)
-    if (freeform !== null) onPick(freeform)
+    // An empty box is not a choice. Clearing the field and pressing Enter must
+    // not fall through to "the first tag in the table".
+    if (q.length === 0) return
+    const first = candidates[0]
+    if (first !== undefined) onPick(first.id)
   }
 
   return (
@@ -339,27 +386,30 @@ function AddressEditor({
           }}
         />
         <ul className="ff-pop-list">
-          {freeform !== null && (
-            <li>
-              <button type="button" className="ff-pop-row ff-pop-new" onClick={() => onPick(freeform)}>
-                <span className="ff-pop-id">{freeform}</span>
-                <span className="ff-pop-label">not in the I/O image</span>
-              </button>
-            </li>
-          )}
-          {matches.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                className={t.id === current ? 'ff-pop-row ff-pop-cur' : 'ff-pop-row'}
-                onClick={() => onPick(t.id)}
-              >
-                <span className="ff-pop-id">{t.id}</span>
-                <span className="ff-pop-label">{t.label}</span>
-              </button>
-            </li>
-          ))}
-          {matches.length === 0 && freeform === null && (
+          {candidates.map((c, i) => {
+            const classes = ['ff-pop-row']
+            if (c.isNew) classes.push('ff-pop-new')
+            else if (c.id === current) classes.push('ff-pop-cur')
+            if (i === 0) classes.push('ff-pop-first')
+            return (
+              <li key={c.isNew ? `new ${c.id}` : c.id}>
+                <button
+                  type="button"
+                  className={classes.join(' ')}
+                  onClick={() => onPick(c.id)}
+                >
+                  <span className="ff-pop-id">{c.id}</span>
+                  <span className="ff-pop-label">{c.label}</span>
+                  {i === 0 && (
+                    <span className="ff-pop-enter" aria-label="Enter picks this">
+                      ↵
+                    </span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+          {candidates.length === 0 && (
             <li className="ff-pop-none">no matching address</li>
           )}
         </ul>
@@ -385,6 +435,7 @@ export function LadderView() {
   const arm = useLaptopStore((s) => s.arm)
   const editing = useLaptopStore((s) => s.editing)
   const beginEdit = useLaptopStore((s) => s.beginEdit)
+  const cancelEdit = useLaptopStore((s) => s.cancelEdit)
   const applyOp = useLaptopStore((s) => s.applyOp)
   const insertContact = useLaptopStore((s) => s.insertContact)
   const revert = useLaptopStore((s) => s.revert)
@@ -447,29 +498,43 @@ export function LadderView() {
       const tags = useGameStore.getState().tags
       const get = (tag: string): boolean => !!tags[tag]?.value
 
+      // An EDITED rung gets no flow at all. The shape on screen is the draft and
+      // the processor is running something else, so there is no honest answer to
+      // "where is the power in this rung" — it is drawn dead and marked offline
+      // (`ff-svg-offline`) instead of being animated with a program that is not
+      // executing. Skipping the analysis here is also why a rung being actively
+      // edited costs nothing per frame.
       const flows = views.map((v) =>
-        v.geom === null ? null : evaluateFlow(v.geom.nodes[0], get),
+        v.geom === null || v.edited ? null : evaluateFlow(v.geom.nodes[0], get),
       )
 
       for (let i = 0; i < targets.length; i++) {
         const t = targets[i]
         const view = views[t.rung]
         const flow = flows[t.rung]
-        if (view === undefined || flow === null || view.geom === null) continue
-        const node = view.geom.nodes[t.node]
-        if (node === undefined) continue
 
-        let state: number
-        if (t.isContact && node.kind === 'contact') {
-          // Three states, and the middle one is the point of the whole display:
-          // 2 = powered, 1 = the contact is MADE but nothing is feeding it,
-          // 0 = open. "Made but dead" is how a technician reads a rung, and it
-          // is the one thing this editor shows that a real one does not.
-          const made = node.negated ? !get(node.tag) : get(node.tag)
-          state = flow.hot.get(node) === true ? 2 : made ? 1 : 0
-        } else {
-          const live = t.hot ? flow.hot.get(node) : flow.fed.get(node)
-          state = live === true ? 2 : 0
+        // 0 is also the reset an edited rung needs: React reuses these elements
+        // across a draft change and never rewrites `data-s` (it only ever
+        // rendered "0"), so a rung that was live when it was edited would keep
+        // its last green until something repainted it.
+        let state = 0
+
+        if (view !== undefined && view.geom !== null && flow !== null) {
+          const node = view.geom.nodes[t.node]
+          if (node !== undefined) {
+            if (t.isContact && node.kind === 'contact') {
+              // Three states, and the middle one is the point of the whole
+              // display: 2 = powered, 1 = the contact is MADE but nothing is
+              // feeding it, 0 = open. "Made but dead" is how a technician reads
+              // a rung, and it is the one thing this editor shows that a real
+              // one does not.
+              const made = node.negated ? !get(node.tag) : get(node.tag)
+              state = flow.hot.get(node) === true ? 2 : made ? 1 : 0
+            } else {
+              const live = t.hot ? flow.hot.get(node) : flow.fed.get(node)
+              state = live === true ? 2 : 0
+            }
+          }
         }
 
         if (prev[i] !== state) {
@@ -541,7 +606,11 @@ export function LadderView() {
         {views.map((view) => {
           const rungSelected =
             selection !== null && selection.rungId === view.rung.id
-          const drafted = drafts[view.rung.id] !== undefined
+          // `edited`, not "there is a key in drafts": laptopStore deletes a
+          // draft that lands back on the running condition, so the two agree —
+          // but reading the flag keeps the gutter mark, the badge and the REVERT
+          // button on one definition.
+          const drafted = view.edited
           const geom = view.geom
 
           return (
@@ -578,9 +647,17 @@ export function LadderView() {
                       <span className="ff-comment">{view.rung.description}</span>
                     )}
                   {view.edited && (
-                    <span className={view.sameLogic ? 'ff-badge ff-badge-eq' : 'ff-badge'}>
-                      {view.sameLogic ? 'edited · same logic' : 'edited'}
-                    </span>
+                    <>
+                      <span
+                        className={view.sameLogic ? 'ff-badge ff-badge-eq' : 'ff-badge'}
+                        title="Held in this terminal. The processor is still scanning the downloaded rung."
+                      >
+                        {view.sameLogic ? 'offline edit · same logic' : 'offline edit'}
+                      </span>
+                      <span className="ff-offline-note">
+                        not executing — download to run it
+                      </span>
+                    </>
                   )}
                   {drafted && (
                     <button
@@ -600,12 +677,16 @@ export function LadderView() {
                 ) : (
                   <div className="ff-svgwrap">
                     <svg
-                      className="ff-svg"
+                      className={view.edited ? 'ff-svg ff-svg-offline' : 'ff-svg'}
                       width={geom.width}
                       height={geom.height}
                       viewBox={`0 0 ${geom.width} ${geom.height}`}
                       role="img"
-                      aria-label={`Rung ${view.index}: ${view.condition}`}
+                      aria-label={
+                        view.edited
+                          ? `Rung ${view.index}, offline edit, not executing: ${view.condition}`
+                          : `Rung ${view.index}: ${view.condition}`
+                      }
                     >
                       {/* power rails */}
                       <line
@@ -878,7 +959,11 @@ export function LadderView() {
                           y={selected.shape.cy + BAR_H + 20}
                           current={selected.shape.node.tag}
                           tags={labels}
-                          onClose={() => beginEdit(null)}
+                          // Not `beginEdit(null)`: dismissing this popover on a
+                          // contact that was inserted a moment ago has to take
+                          // the insert back out, or there is no way to change
+                          // your mind short of reverting the whole rung.
+                          onClose={cancelEdit}
                           onPick={(id) => {
                             const at = editing
                             applyOp(at, (root, path) => setContactTag(root, path, id))

@@ -11,6 +11,17 @@
  * `Fault.solution` are already authored per scenario in the JSON and until now
  * nothing rendered them — so the answer to "what did I miss" is data, and every
  * new scenario gets its own debrief for free.
+ *
+ * ── The glossary ────────────────────────────────────────────────────────────
+ *
+ * That authored prose is written by and for someone who already does this work:
+ * "the prox never makes, so the seal-in holds and the contactor stays in". To a
+ * player who has never seen a PLC, a debrief in that language teaches nothing —
+ * it just proves they were never going to get it. So the terms actually present
+ * in this scenario's text are matched against a plain-English list and the
+ * handful that hit are glossed underneath. It is derived from the text rather
+ * than authored per scenario, so it stays correct as scenarios are added and
+ * costs an author nothing.
  */
 
 import { useEffect, useState } from 'react'
@@ -19,10 +30,73 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 /** Blackout before the debrief resolves. */
 const HOLD_MS = 1400
-/** How long the debrief stays up before it drops back to the title. */
-const RETURN_SECONDS = 14
+/**
+ * How long the debrief stays up before it drops back to the title.
+ *
+ * Was 14 s, which was under half the time it takes to read the three panels and
+ * the glossary — the screen that exists to teach the fault was yanking itself
+ * away mid-sentence. [R] and [ENTER] are both live throughout, so a player who
+ * has finished reading is never waiting on this.
+ */
+const RETURN_SECONDS = 40
 
 const MONO = '"JetBrains Mono", ui-monospace, monospace'
+
+/**
+ * The jargon this game's scenario text is written in, in plain English.
+ *
+ * Matched case-insensitively against the debrief prose actually on screen, so
+ * nothing is explained that was not said. Order is priority order: the first
+ * three hits are shown and the rest are dropped, because a wall of definitions
+ * is the same failure as a wall of jargon.
+ */
+const GLOSSARY: Array<{ re: RegExp; term: string; plain: string }> = [
+  {
+    re: /\bprox\b|\bproximity\b/i,
+    term: 'PROX SENSOR',
+    plain: 'A switch with no moving parts that turns on when metal comes near it. Here it is how the machine knows a carton has arrived under the spout.',
+  },
+  {
+    re: /photo-?\s?eye|photocell|through-?beam/i,
+    term: 'PHOTO-EYE',
+    plain: 'A light-beam sensor. Break or bounce the beam and it switches. Here it is how the machine knows the carton is full.',
+  },
+  {
+    re: /seal-?in|\blatch(ed|es|ing)?\b/i,
+    term: 'SEAL-IN',
+    plain: 'A rung of the program that holds itself on. One press of START energises it and it keeps itself running until STOP breaks it — which is why you do not have to hold the button down.',
+  },
+  {
+    re: /\bcontactor\b|\bcoil\b|\bMCC\b/i,
+    term: 'CONTACTOR',
+    plain: 'The heavy power relay that actually switches the motor. The PLC energises a small coil; the coil slams the big contacts together. It can be doing that perfectly while the machine still does not move.',
+  },
+  {
+    re: /lock(ed)?[- ]?out|lock[- ]?off|\bLOTO\b|isolat/i,
+    term: 'LOCK-OUT',
+    plain: 'Kill the power at the isolator and padlock it OFF before your hands go anywhere that can move. In here: cabinet door, then the main isolator, then the repair.',
+  },
+  {
+    re: /\brung\b|\bladder\b|\bprogram\b/i,
+    term: 'RUNG',
+    plain: 'One line of the PLC program — conditions on the left, the thing they switch on the right. You can read them live on the laptop with [L].',
+  },
+  {
+    re: /lagging|take-?up|\btension/i,
+    term: 'LAGGING & TAKE-UP',
+    plain: 'The rubber facing on a conveyor drive roller, and the adjuster that keeps the belt tight against it. Worn smooth or slack, the roller spins and the belt does not go anywhere.',
+  },
+  {
+    re: /normally (open|closed)|\bN\.?O\.?\b|\bN\.?C\.?\b/i,
+    term: 'NO / NC',
+    plain: 'How a contact sits when nobody is touching it: normally open (dead until pressed) or normally closed (made until pressed). A STOP button wired the wrong way round still looks fine and stops nothing.',
+  },
+  {
+    re: /\bscan\b|\bprocessor\b|\bPLC\b/i,
+    term: 'SCAN',
+    plain: 'The PLC reads every input, solves the whole program, then writes every output, over and over — twenty times a second here. It does exactly what it was told, every time.',
+  },
+]
 
 /**
  * First `n` sentences of a block of authored prose.
@@ -79,10 +153,18 @@ function Debrief() {
     return () => clearTimeout(t)
   }, [])
 
-  // Release the mouse — the run is over and the player needs the cursor back
-  useEffect(() => {
-    if (document.pointerLockElement) document.exitPointerLock()
-  }, [])
+  // The cursor comes back on its own.
+  //
+  // This used to call document.exitPointerLock() here, which is the one thing
+  // no component is allowed to do: PointerLockWarden is the sole caller, and it
+  // releases on the FOCUS change. A debrief is `outcome === 'lost'`, which
+  // focusOf() already maps to 'debrief', and LOCKED.debrief is false — so the
+  // warden has released the pointer before this component even mounts.
+  //
+  // Doing it here as well is not merely redundant: a release the focus model did
+  // not initiate is exactly the shape of bug that had restarts landing frozen
+  // with no menu and dead controls, because drei reports the unlock a tick later
+  // and handleUnlock has to decide whether it was a pause.
 
   // Count down to the title screen. Cleared on unmount so a stray timer can't
   // yank the player out of the next run.
@@ -101,6 +183,13 @@ function Debrief() {
   // The fault they were sent to find. Still active is the normal case — if it
   // weren't, they'd have won — but read the active one first regardless.
   const fault = faults.find(f => f.active) ?? faults[0]
+
+  const wrong = fault ? sentences(fault.effect, 1) : ''
+  const shouldHave = fault ? sentences(fault.solution, 2) : ''
+  const tell = fault?.clues[0] ?? ''
+  // Only gloss words that are actually on this screen.
+  const haystack = `${wrong} ${shouldHave} ${tell}`
+  const glossed = GLOSSARY.filter(g => g.re.test(haystack)).slice(0, 3)
 
   return (
     <div style={{
@@ -137,12 +226,8 @@ function Debrief() {
           <div>
             {fault && (
               <>
-                <Panel title="What was actually wrong">
-                  {sentences(fault.effect, 1)}
-                </Panel>
-                <Panel title="What you should have done">
-                  {sentences(fault.solution, 2)}
-                </Panel>
+                <Panel title="What was actually wrong">{wrong}</Panel>
+                <Panel title="What you should have done">{shouldHave}</Panel>
               </>
             )}
           </div>
@@ -170,11 +255,41 @@ function Debrief() {
             )}
             {/* One clue, not the list. The full set is a study aid; on a loss
                 screen it turns the point into a paragraph nobody finishes. */}
-            {fault && fault.clues.length > 0 && (
-              <Panel title="The tell you walked past">{fault.clues[0]}</Panel>
-            )}
+            {tell && <Panel title="The tell you walked past">{tell}</Panel>}
           </div>
         </div>
+
+        {/* The debrief above is written in the trade's own words. This is the
+            same debrief for someone who has never been near a control panel. */}
+        {glossed.length > 0 && (
+          <div style={{
+            marginTop: '0.6rem',
+            borderTop: '1px solid rgba(255,255,255,0.12)',
+            paddingTop: '1rem',
+          }}>
+            <div style={{
+              fontSize: '0.62rem', letterSpacing: '0.18em',
+              textTransform: 'uppercase', color: '#8b93a1',
+              marginBottom: '0.7rem',
+            }}>In plain English</div>
+            <div style={{
+              display: 'grid', gap: '0.8rem 1.6rem',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(17rem, 1fr))',
+            }}>
+              {glossed.map(g => (
+                <div key={g.term}>
+                  <div style={{
+                    fontSize: '0.68rem', letterSpacing: '0.1em',
+                    color: '#e8e4e0', marginBottom: '0.22rem',
+                  }}>{g.term}</div>
+                  <div style={{
+                    fontSize: '0.74rem', lineHeight: 1.6, color: '#8b93a1',
+                  }}>{g.plain}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{
           marginTop: '1.6rem', fontSize: '0.7rem', letterSpacing: '0.12em',

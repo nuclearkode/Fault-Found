@@ -40,6 +40,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import {
   hostSession,
   joinSession,
+  makePeerId,
   codeProblem,
   normaliseCode,
   type AvatarVariant,
@@ -99,6 +100,12 @@ interface LobbyState {
 
   host: () => void
   join: (rawCode: string) => void
+  /**
+   * Drop a stale error. The menu calls this when the player edits the code they
+   * were just told was wrong: an error about the last attempt has no business
+   * sitting under the next one.
+   */
+  clearError: () => void
   /** Tear down whatever is running and go back to solo. Always safe to call. */
   leave: () => void
 
@@ -110,8 +117,18 @@ interface LobbyState {
   publishLocal: (pos: readonly [number, number, number], yaw: number, moving: boolean) => void
 }
 
-/** Trim, clamp, and never let it be empty — a blank nameplate reads as a bug. */
-function cleanName(raw: string, id: PeerId | null): string {
+/**
+ * Trim, clamp, and never let it be empty — a blank nameplate reads as a bug.
+ *
+ * The id matters. Most people will not type a name, and if the fallback ignores
+ * the id then every one of them is called TECH: two anonymous players get the
+ * same nameplate, the roster shows the same row twice, and the first thing the
+ * lobby communicates is that it cannot tell people apart. Pass the id.
+ *
+ * Exported so the menu can show a player the same name everyone else sees,
+ * rather than its own placeholder.
+ */
+export function cleanName(raw: string, id: PeerId | null): string {
   const n = raw.trim().slice(0, MAX_NAME)
   if (n) return n
   return id ? `TECH-${id.slice(0, 4).toUpperCase()}` : 'TECH'
@@ -155,8 +172,13 @@ export const useLobbyStore = create<LobbyState>()(
 
     host: () => {
       get().leave()
+      // The id is minted here rather than inside the session, because the name
+      // that goes out in the first hello is derived from it when the player has
+      // not typed one. See cleanName.
+      const id = makePeerId()
       attach(hostSession({
-        name: cleanName(get().localName, null),
+        id,
+        name: cleanName(get().localName, id),
         variant: get().localVariant,
       }))
     },
@@ -171,10 +193,20 @@ export const useLobbyStore = create<LobbyState>()(
         return
       }
       get().leave()
+      const id = makePeerId()
       attach(joinSession(code, {
-        name: cleanName(get().localName, null),
+        id,
+        name: cleanName(get().localName, id),
         variant: get().localVariant,
       }))
+    },
+
+    clearError: () => {
+      if (get().error === null) return
+      // With no session running, 'error' was never a state of anything real —
+      // it was the verdict on a string somebody typed. Go back to idle. With a
+      // session running the status belongs to the session, so leave it alone.
+      set({ error: null, status: session ? get().status : 'idle' })
     },
 
     leave: () => {
