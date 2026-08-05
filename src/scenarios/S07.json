@@ -1,0 +1,309 @@
+{
+  "id": "S07",
+  "rig": "mps_line",
+  "title": "Stuck On Schritt 4",
+  "difficulty": 4,
+  "tier": 2,
+  "environment": "Warehouse — MPS line, Processing station (BE), north bay",
+  "briefing": "Second shift left it hung and went home. The Processing station took a part, clamped it, dropped the drill — and stopped there. The spindle is still turning, has been since about half nine, and the clamp is still holding the workpiece down on the table. The step display on the HMI reads S4 BOHREN and has not moved off it. No alarm, no Stoerung lamp, nothing in the fault list. Derek wants it cycling before the first pallet of the day.",
+  "timeLimit": 720,
+
+  "tags": [
+    { "id": "I0.0", "label": "B1_TISCH_POS",     "type": "BOOL", "value": true,  "description": "Rundschalttisch in Position — inductive sensor on the index plate. TRUE when the table is locked on a station mark." },
+    { "id": "I0.1", "label": "B2_TEIL_AUFN",     "type": "BOOL", "value": false, "description": "Werkstueck in Aufnahme — capacitive sensor in the nest at the load position. TRUE when a part has dropped in." },
+    { "id": "I0.2", "label": "B3_KLEMME_ZU",     "type": "BOOL", "value": false, "description": "Klemmzylinder ausgefahren — reed switch on the clamp cylinder. TRUE when the part is clamped." },
+    { "id": "I0.3", "label": "B4_KLEMME_AUF",    "type": "BOOL", "value": true,  "description": "Klemmzylinder eingefahren — reed switch, clamp home. Both clamp reeds are checked so a sensor stuck made cannot pass as a real position." },
+    { "id": "I0.4", "label": "B5_BOHR_UNTEN",    "type": "BOOL", "value": false, "description": "Bohrvorschub untere Endlage — reed switch clamped to the drilling-feed cylinder barrel. TRUE when the drill has reached full depth. The whole cycle waits on this one bit." },
+    { "id": "I0.5", "label": "B6_BOHR_OBEN",     "type": "BOOL", "value": true,  "description": "Bohrvorschub obere Endlage — reed switch, drill fully retracted (home)." },
+    { "id": "I0.6", "label": "B7_TEIL_PRUEFPOS", "type": "BOOL", "value": false, "description": "Werkstueck in Pruefposition — sensor under the checking module. TRUE once the table has carried a drilled part round to it." },
+    { "id": "I0.7", "label": "B8_PRUEF_UNTEN",   "type": "BOOL", "value": false, "description": "Pruefzylinder untere Endlage — probe of the Bohrlochpruefung has reached the bottom of its stroke." },
+    { "id": "I1.0", "label": "B9_PRUEF_OBEN",    "type": "BOOL", "value": true,  "description": "Pruefzylinder obere Endlage — probe home. The valve is spring-return, so the probe lifts by itself the moment the check step ends." },
+    { "id": "I1.1", "label": "B10_BOHRLOCH_IO",  "type": "BOOL", "value": false, "description": "Bohrlochpruefung i.O. — the checking module's depth signal. TRUE when the hole is present and to depth." },
+    { "id": "I1.2", "label": "S1_START",         "type": "BOOL", "value": false, "description": "Taster START — momentary NO on the operator panel." },
+    { "id": "I1.3", "label": "S2_STOP",          "type": "BOOL", "value": true,  "description": "Taster STOP — NC in the field. TRUE = circuit intact, FALSE = pressed or wire broken." },
+    { "id": "I1.4", "label": "S3_NOTHALT",       "type": "BOOL", "value": true,  "description": "Not-Halt — maintained mushroom, NC. TRUE = released and the chain is healthy." },
+    { "id": "I1.5", "label": "S4_AUTOMATIK",     "type": "BOOL", "value": true,  "description": "Betriebsartenwahl Hand/Automatik. TRUE = Automatik; the chart refuses to leave Grundstellung in Hand." },
+
+    { "id": "Q4.0", "label": "M1_KLEMME",        "type": "BOOL", "value": false, "description": "Klemmzylinder ausfahren — spring-return valve. Energised = clamped, de-energised = open." },
+    { "id": "Q4.1", "label": "M2_BOHR_AB",       "type": "BOOL", "value": false, "description": "Bohrvorschub abwaerts — drives the drilling module down." },
+    { "id": "Q4.2", "label": "M3_BOHR_AUF",      "type": "BOOL", "value": false, "description": "Bohrvorschub aufwaerts — lifts the drilling module clear of the part." },
+    { "id": "Q4.3", "label": "M4_SPINDEL",       "type": "BOOL", "value": false, "description": "Bohrmaschine — spindle motor contactor." },
+    { "id": "Q4.4", "label": "M5_TISCH",         "type": "BOOL", "value": false, "description": "Rundschalttisch takten — index drive, runs until the next station mark makes." },
+    { "id": "Q4.5", "label": "M6_PRUEFER",       "type": "BOOL", "value": false, "description": "Pruefzylinder ausfahren — lowers the checking module's probe into the hole." },
+    { "id": "Q4.6", "label": "H1_LM_START",      "type": "BOOL", "value": false, "description": "Leuchtmelder START — lit at Grundstellung with no cycle running, i.e. ready to be started." },
+    { "id": "Q4.7", "label": "H2_LM_STOERUNG",   "type": "BOOL", "value": false, "description": "Leuchtmelder Stoerung — fault lamp. Driven only by the Not-Halt chain; nothing in this program watches a step for overrun." },
+
+    { "id": "M0.0", "label": "MK_FREIGABE",      "type": "BOOL", "value": false, "description": "Merker Anlagenfreigabe — the OB1 seal-in. START latches it, STOP or Not-Halt drops it." },
+    { "id": "M0.1", "label": "MK_TEIL_GEPRUEFT", "type": "BOOL", "value": false, "description": "Merker: this workpiece has been through the Bohrlochpruefung. Latched by the check step, cleared at Grundstellung." },
+    { "id": "M0.2", "label": "MK_TAKT_IMPULS",   "type": "BOOL", "value": false, "description": "Merker Taktimpuls — one-scan pulse per table index, so the piece counter increments once per part and not once per scan." },
+    { "id": "M0.3", "label": "MK_GRUNDSTELLUNG", "type": "BOOL", "value": false, "description": "Merker Grundstellung — every actuator proved home. This is the interlock the station refuses to start without." },
+    { "id": "M0.4", "label": "MK_ZYKLUS",        "type": "BOOL", "value": false, "description": "Merker Zyklus laeuft — set when a part is accepted, cleared only when the station gets back to Grundstellung, so an interrupted cycle stays visible." }
+  ],
+
+  "rungs": [
+    { "id": 1, "description": "Anlagenfreigabe. START latches the seal-in; STOP or Not-Halt drops it. Both are NC in the field, so a broken wire stops the station instead of disabling the stop.", "condition": "(I1.2 OR M0.0) AND I1.3 AND I1.4",                          "output": "M0.0" },
+    { "id": 2, "description": "Grundstellung. Every actuator proved home on its own end-position sensor, and the opposed reeds proved clear. Note that a drill-down reed which never makes still satisfies this rung — at home it is SUPPOSED to be clear, so this fault is invisible until the drill is sent down.", "condition": "I0.0 AND I0.3 AND I0.5 AND I1.0 AND NOT I0.2 AND NOT I0.4 AND NOT I0.7", "output": "M0.3" },
+    { "id": 3, "description": "Leuchtmelder START — home and idle means ready to be started. It goes out for the whole cycle and comes back when the chart returns to Schritt 1.",                                                     "condition": "M0.3 AND NOT M0.4",                                        "output": "Q4.6" },
+    { "id": 4, "description": "Stoerungsmeldung. The only thing that lights the fault lamp is the Not-Halt chain. The step-supervision times in the GRAPH FB were left at zero at commissioning, so a step that never ends raises nothing at all — the lamp stays dark and the HMI fault list stays empty while the machine sits there.", "condition": "NOT I1.4",                                                 "output": "Q4.7" }
+  ],
+
+  "sfc": {
+    "name": "FB1 Bearbeiten — Ablaufkette Bearbeitungsstation (BE)",
+    "steps": [
+      {
+        "id": "S1",
+        "number": 1,
+        "title": "Grundstellung",
+        "comment": "Home. Every cylinder retracted, the table locked on an index mark, spindle off, waiting for START. This step commands nothing that moves — it exists so the chart has somewhere safe to stand between parts.",
+        "initial": true,
+        "actions": [
+          { "qualifier": "R", "tag": "M0.4", "comment": "Zyklus-Merker loeschen — the cycle flag clears only once the station is genuinely back home, so a cycle abandoned halfway still reads as running" },
+          { "qualifier": "R", "tag": "M0.1", "comment": "Pruefergebnis loeschen — wipe the last part's inspection result before a new part starts" }
+        ]
+      },
+      {
+        "id": "S2",
+        "number": 2,
+        "title": "Werkstueck aufnehmen",
+        "comment": "A workpiece has been dropped into the nest at the load position. The station accepts it and flags that a cycle is now running.",
+        "actions": [
+          { "qualifier": "S", "tag": "M0.4", "comment": "Zyklus laeuft — set here, reset only at Grundstellung" }
+        ]
+      },
+      {
+        "id": "S3",
+        "number": 3,
+        "title": "Klemmen",
+        "comment": "The clamp cylinder extends and holds the workpiece down against the table so the drill cannot drag it round with the bit.",
+        "actions": [
+          { "qualifier": "S", "tag": "Q4.0", "comment": "Klemmzylinder ausfahren — latched, not held: the part must stay clamped through drilling and retraction, long after this step has ended" }
+        ]
+      },
+      {
+        "id": "S4",
+        "number": 4,
+        "title": "Bohren",
+        "comment": "Spindle starts and the feed drives the drill down into the clamped part. The step ends when the lower end-position sensor on the feed cylinder confirms full depth — nothing else is watching, so if that sensor stays clear the station simply keeps drilling.",
+        "actions": [
+          { "qualifier": "S", "tag": "Q4.3", "comment": "Bohrmaschine ein — latched so the spindle keeps turning through the retract stroke; it is killed at Entklemmen, which is why a chart hung here leaves the drill audibly running" },
+          { "qualifier": "N", "tag": "Q4.1", "comment": "Bohrvorschub abwaerts — held only while this step is active" }
+        ]
+      },
+      {
+        "id": "S5",
+        "number": 5,
+        "title": "Bohrer zurueckziehen",
+        "comment": "The feed reverses and lifts the drill clear of the workpiece.",
+        "actions": [
+          { "qualifier": "N", "tag": "Q4.2", "comment": "Bohrvorschub aufwaerts" }
+        ]
+      },
+      {
+        "id": "S6",
+        "number": 6,
+        "title": "Entklemmen",
+        "comment": "With the drill clear, the clamp releases and the spindle is switched off.",
+        "actions": [
+          { "qualifier": "R", "tag": "Q4.0", "comment": "Klemmzylinder einfahren — drops the latch set back at Schritt 3" },
+          { "qualifier": "R", "tag": "Q4.3", "comment": "Bohrmaschine aus" }
+        ]
+      },
+      {
+        "id": "S7",
+        "number": 7,
+        "title": "Tisch takten",
+        "comment": "The indexing rotary table turns one position: the drilled part goes round to the checking module and the next nest comes under the drill.",
+        "actions": [
+          { "qualifier": "N", "tag": "Q4.4", "comment": "Rundschalttisch takten — the drive runs for exactly as long as this step is active" },
+          { "qualifier": "P", "tag": "M0.2", "comment": "Taktimpuls — one scan only, so the piece counter sees one edge per index instead of one per scan" }
+        ]
+      },
+      {
+        "id": "S8",
+        "number": 8,
+        "title": "Bohrlochpruefung",
+        "comment": "The checking module lowers its probe into the hole. The probe valve is spring-return, so leaving this step is what lifts the probe again — the chart never commands it up.",
+        "actions": [
+          { "qualifier": "N", "tag": "Q4.5", "comment": "Pruefzylinder ausfahren" },
+          { "qualifier": "S", "tag": "M0.1", "comment": "Merker: dieses Werkstueck wurde geprueft" }
+        ]
+      }
+    ],
+    "transitions": [
+      {
+        "id": "T1",
+        "number": 1,
+        "from": "S1",
+        "to": "S2",
+        "title": "Grundstellung erreicht und START betaetigt",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I1.2" },
+            { "op": "tag", "tag": "I1.3" },
+            { "op": "tag", "tag": "I1.4" },
+            { "op": "tag", "tag": "I1.5" },
+            { "op": "tag", "tag": "I0.0" },
+            { "op": "tag", "tag": "I0.3" },
+            { "op": "tag", "tag": "I0.5" },
+            { "op": "tag", "tag": "I1.0" },
+            { "op": "not", "term": { "op": "tag", "tag": "I0.2" } }
+          ]
+        }
+      },
+      {
+        "id": "T2",
+        "number": 2,
+        "from": "S2",
+        "to": "S3",
+        "title": "Werkstueck in Aufnahme",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.1" },
+            { "op": "tag", "tag": "I0.0" }
+          ]
+        }
+      },
+      {
+        "id": "T3",
+        "number": 3,
+        "from": "S3",
+        "to": "S4",
+        "title": "Klemmzylinder ausgefahren",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.2" },
+            { "op": "not", "term": { "op": "tag", "tag": "I0.3" } }
+          ]
+        }
+      },
+      {
+        "id": "T4",
+        "number": 4,
+        "from": "S4",
+        "to": "S5",
+        "title": "Bohrvorschub untere Endlage erreicht",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.4" },
+            { "op": "tag", "tag": "I0.2" }
+          ]
+        }
+      },
+      {
+        "id": "T5",
+        "number": 5,
+        "from": "S5",
+        "to": "S6",
+        "title": "Bohrvorschub obere Endlage erreicht",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.5" },
+            { "op": "not", "term": { "op": "tag", "tag": "I0.4" } }
+          ]
+        }
+      },
+      {
+        "id": "T6",
+        "number": 6,
+        "from": "S6",
+        "to": "S7",
+        "title": "Klemmzylinder eingefahren",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.3" },
+            { "op": "not", "term": { "op": "tag", "tag": "I0.2" } }
+          ]
+        }
+      },
+      {
+        "id": "T7",
+        "number": 7,
+        "from": "S7",
+        "to": "S8",
+        "title": "Rundschalttisch in Pruefposition",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.0" },
+            { "op": "tag", "tag": "I0.6" }
+          ]
+        }
+      },
+      {
+        "id": "T8",
+        "number": 8,
+        "from": "S8",
+        "to": "S1",
+        "title": "Bohrloch i.O. und Pruefer unten",
+        "expr": {
+          "op": "and",
+          "terms": [
+            { "op": "tag", "tag": "I0.7" },
+            { "op": "tag", "tag": "I1.1" }
+          ]
+        }
+      }
+    ]
+  },
+
+  "faults": [
+    {
+      "id": "F1",
+      "type": "sensor_fail_low",
+      "targetTag": "I0.4",
+      "effect": "B5, the lower end-position reed on the drilling-feed cylinder, has crept down the barrel in its clamp and no longer sits over the piston magnet at full depth. It never makes. Transition T4 out of Schritt 4 Bohren wants B5 TRUE, so the chart holds on S4 indefinitely: the feed valve Q4.1 stays commanded down and the spindle, latched on by the S action in that step, keeps turning. Nothing detects this. The step-supervision times in the GRAPH FB are zero, so there is no Zeitueberwachung to raise a Stoerung, and every actuator is doing exactly what the active step told it to.",
+      "clues": [
+        "Spindle running, drill sitting at full depth, and the HMI step display has read S4 BOHREN for hours without a single alarm.",
+        "The laptop's chart view shows T4 blocked on B5 Bohrvorschub untere Endlage — wanted TRUE, actual FALSE. Every other term in that transition is satisfied.",
+        "I0.4 reads FALSE at the processor with the drilling module visibly at the bottom of its stroke.",
+        "B5's own LED never lights at any point in the stroke, but sliding the sensor up the barrel by hand with the feed down makes it light immediately.",
+        "24 V is present on brown and blue at the sensor plug, and B6 (I0.5) on the same cylinder and the same input card toggles normally — the card and the field wiring are healthy."
+      ],
+      "solution": "Isolate the power AND dump the air at the service unit before reaching into the drilling module — a clamped, pressurised cylinder still has a stroke left in it when the supply goes. Slide B5 back up the barrel until it makes reliably with the feed at full depth, tighten the clamp screw to spec, and prove I0.4 toggles at the processor over three complete cycles before handing the station back. The program is correct: the chart is waiting on a sensor that is no longer where the machine put the magnet, and editing the transition to drop B5 would let the station index a part with the drill still buried in it.",
+      "active": true
+    }
+  ],
+
+  "redHerrings": [
+    {
+      "description": "The spindle motor is hot enough to smell and the drilling module's fan is roaring.",
+      "location": "Drilling module, above the rotary table",
+      "whyMisleading": "It has been running unloaded at full depth for hours because the step never ended. That is the consequence, not the cause — swapping the spindle costs a parts order and changes nothing."
+    },
+    {
+      "description": "The service unit gauge reads 5.5 bar against 6 bar on the setup sheet.",
+      "location": "Air preparation unit at the station frame",
+      "whyMisleading": "Genuinely below spec and worth a note, but every cylinder still strokes fully — the drill IS at the bottom. Winding the regulator up does not make a sensor that is in the wrong place start reporting."
+    },
+    {
+      "description": "Every step-supervision time in the GRAPH FB is set to zero.",
+      "location": "FB1 Bearbeiten, step properties in the programming software",
+      "whyMisleading": "A real commissioning omission, and the reason nobody was warned — but setting the times would only have raised an alarm at Schritt 4, not moved the machine past it. Fixing it is a good write-up item, not the repair."
+    }
+  ],
+
+  "derekScript": {
+    "initialCall": "The Processing station's parked with a drill stuck in a part and the motor screaming. It's been like that since the night shift. Get it cycling.",
+    "checkIn5min": "Where are we? It says step 4 on the screen, does that not just tell you what's wrong?",
+    "impatient10min": "Reprogram it to skip that step and let's get parts out. We can sort it properly at the weekend.",
+    "angry15min": "That spindle's been running all night. If it burns out, that's a two-week lead time on my desk.",
+    "resolution": "A sensor slid down the tube. All that, and it's a sensor that moved. Put the supervision times in the report while you're at it."
+  },
+
+  "scoring": {
+    "parTime": 480,
+    "maxScore": 5000,
+    "penalties": {
+      "wrongDiagnosis": 200,
+      "unnecessaryPartOrder": 100,
+      "skipLOTO": 300,
+      "derekEscalation": 150
+    }
+  }
+}
