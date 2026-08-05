@@ -6,7 +6,7 @@
   "tier": 2,
   "environment": "Warehouse — silo fill cell, west bay",
   "briefing": "Night shift left a note: the silo fill line 'runs but nothing moves'. Operators pressed START, the RUN lamp came on, the motor is humming, but cartons are sitting where they were left and nothing has been filled since 03:00. Derek wants it back before the morning run. Nothing on the HMI is flagged.",
-  "timeLimit": 900,
+  "timeLimit": 60,
 
   "tags": [
     { "id": "I:1/00", "label": "START_PB",    "type": "BOOL", "value": false, "description": "Start pushbutton, momentary NO" },

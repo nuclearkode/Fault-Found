@@ -74,7 +74,21 @@ export const useSettingsStore = create<SettingsState>()(
     // --- Graphics ---
     gpuTier: 'high',
     setGpuTier: (tier) => set({ gpuTier: tier }),
-    qualityOverride: 'auto',
+    /**
+     * Start every session on LOW, and let the player raise it.
+     *
+     * This was 'auto', which trusts detectGPU() to read the machine. Auto is the
+     * better answer when it is right and much the worse one when it is wrong: a
+     * misread that lands a weak laptop on 'high' costs a stuttering first
+     * minute, and the first minute is the only one a stranger with a link will
+     * give the game. Guessing low costs a player with a real GPU some fidelity
+     * they can restore from the pause menu in two clicks — an asymmetry worth
+     * taking while the game is being handed to people cold.
+     *
+     * The detected tier is still computed and still available: choosing 'auto'
+     * in the pause menu goes back to it.
+     */
+    qualityOverride: 'low',
     setQualityOverride: (override) => set({ qualityOverride: override }),
     // 1.5 is the working default — the warehouse reads too dim below it. The
     // slider is centred on this value so it can be trimmed either way.

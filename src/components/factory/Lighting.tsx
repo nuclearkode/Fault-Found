@@ -251,17 +251,12 @@ export function Lighting({ tier }: LightingProps) {
         />
       )}
 
-      {/* Fire point marker, over the board on the south wall by the entry.
-          It used to be described as an emergency exit light and sat on the NORTH
-          wall — the far end of the building from the way in. */}
-      <pointLight
-        name="fire_point_glow"
-        position={[-3.6, 3.2, FACTORY.DEPTH / 2 - 0.6]}
-        intensity={0.18}
-        color="#ff2200"
-        distance={4.5}
-        decay={2}
-      />
+      {/* The red "fire point marker" glow that used to sit here is gone.
+          It was a bare pointLight with no fixture, sign or housing anywhere
+          near it, so all a player ever saw was an unexplained red pool on the
+          south wall — read on sight as a bug, and reported as one. A marker
+          light only reads as a marker if something visible is making it; until
+          there is a board to mount, the honest version is no light. */}
 
       {/* Fog — subtle industrial haze */}
       {fogDensity > 0.01 && (

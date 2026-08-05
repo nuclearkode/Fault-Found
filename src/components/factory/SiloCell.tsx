@@ -32,6 +32,7 @@
 import { useMemo, useRef, useCallback, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
+import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier'
 import * as THREE from 'three'
 import { useGameStore } from '@/stores/gameStore'
 import { worldInputEnabled, worldRunning } from '@/stores/worldClock'
@@ -757,6 +758,7 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
   })
 
   return (
+    <>
     <group
       ref={group}
       name="silo_cell"
@@ -790,6 +792,58 @@ export function SiloCell({ position = [0, 0, 0], rotation = 0 }: Props) {
           so it inherits the rig's placement and uses cell-local coordinates. */}
       <TagTable />
     </group>
+
+      {/*
+        Collision for the cell. Until now there was none at all — the whole
+        assembly was scenery you walked straight through, silo included.
+
+        ── Why explicit colliders, and not colliders="trimesh" ─────────────────
+
+        Two reasons, both learned the hard way.
+
+        First, react-three-rapier builds colliders by walking the object with
+        traverseVisible(), so anything hidden contributes nothing — the office
+        walls shipped with no collision at all for exactly this reason. Half of
+        what is under `cellScene` is toggled by scenario state.
+
+        Second, and worse here: a fixed body bakes its colliders once, at the
+        pose it finds. The cartons and the product stream MOVE. Trimeshing the
+        cell would leave a row of invisible blocks hanging in the air wherever
+        the cartons happened to start, which is a stranger bug than no collision
+        at all. So the moving parts get no collider and the static structure
+        gets hand-placed ones.
+
+        ── Why a sibling of the group rather than a child ──────────────────────
+
+        A RigidBody nested inside a transformed group put its colliders in the
+        middle of the map once already. Carrying the SAME position/rotation
+        explicitly, as a sibling, is the arrangement that measured correct.
+
+        Extents come from the built scene, not from the .blend: world-space
+        AABBs read off the live model and converted to cell-local by subtracting
+        the group origin. Cell origin is (0, 0, -4), hence the z offsets.
+      */}
+      <RigidBody
+        type="fixed"
+        colliders={false}
+        position={position}
+        rotation={[0, (rotation * Math.PI) / 180, 0]}
+      >
+        {/* Silo body: shell + hopper + bands + roof, y 1.45 → 4.27, r 0.93.
+            A cylinder rather than a cuboid so you can walk round it without
+            catching on corners that are not there. */}
+        <CylinderCollider args={[1.41, 0.93]} position={[0, 2.86, 0]} />
+
+        {/* Conveyor bed — frame, belt, rails and rollers as one slab at waist
+            height. Blocks crossing the line without sealing the walkway. */}
+        <CuboidCollider args={[3.0, 0.1, 0.32]} position={[0, 0.81, 0]} />
+
+        {/* Nothing else is collidable, deliberately. The cabinet, the racks and
+            the panel stay walk-through: they are things you stand AT rather than
+            walk around, and a collider on the enclosure you have to reach into
+            buys nothing but a chance of wedging the player during lock-off. */}
+      </RigidBody>
+    </>
   )
 }
 

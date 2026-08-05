@@ -133,19 +133,19 @@ function ClickOverlay({ label, hint, onStart }: {
 const DEV_SCENARIO = 'S02'
 
 /**
- * Countdown override, in seconds, applied only OUTSIDE production.
+ * No countdown override any more — dev runs exactly what ships.
  *
- * 30 s is the right number to test the failure path against — nothing about the
- * chase or the debrief can be seen inside the scenarios' authored 600-780 s. It
- * is the wrong number to hand to a player: the supervisor arrives before you can
- * reach the machine, so the game reads as broken rather than tense.
+ * This used to force 30 s outside production, because the authored 600-780 s
+ * limits made the chase and the debrief effectively untestable. S02, the job
+ * every run opens on, is now an authored 60 s, so the failure path is reachable
+ * without a special case and the divergence has no reason to exist. Divergence
+ * is not free: while it was here, what you tested was never what a player got.
  *
- * Keyed on NODE_ENV rather than a constant somebody has to remember to flip. A
- * shipped build that still had a 30-second timer in it would be a bad first
- * impression that nobody would recognise as a stray dev flag.
+ * The other jobs keep their long limits. To test one of those quickly, set the
+ * clock from the console rather than reintroducing a build-mode branch:
+ *   __game.getState().startTimer(20)
  */
-const DEV_TIME_LIMIT: number | undefined =
-  process.env.NODE_ENV === 'production' ? undefined : 30
+const DEV_TIME_LIMIT: number | undefined = undefined
 
 /**
  * Dev-only handles on the live scene and physics world, at `window.__scene` and
