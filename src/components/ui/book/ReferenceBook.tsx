@@ -108,6 +108,14 @@ export function ReferenceBook() {
         position: 'relative',
         width: 'min(1200px, 95vw)',
         height: 'min(900px, 88vh)',
+        // The book is the only thing in this column allowed to give ground. Its
+        // automatic minimum is content-based, which on a short viewport is taller
+        // than the space left over and quietly shoves the controls off the bottom
+        // of the screen — measured at 1024x400 before this line existed, footer
+        // clipped by six pixels. Zeroing the minimum lets 88vh be a wish rather
+        // than a floor, and the pages already clip rather than scroll, so what
+        // gives way is the bottom of the paper and never the way out of it.
+        minHeight: 0,
         display: 'flex',
         // The boards: a dark cloth binding a couple of millimetres proud of the
         // block, which is what stops the paper reading as two white divs.
@@ -179,13 +187,18 @@ export function ReferenceBook() {
         columns keep the spread counter on the middle of the book and let the two
         buttons flank it symmetrically however wide their labels get.
 
-        `flex: '0 0 auto'` is load-bearing rather than tidiness. The book above
-        is `min(900px, 88vh)` and is left shrinkable on purpose: on a viewport
-        too short for both, the paper gives up height and the controls stay
-        exactly where they are. The alternative — the footer shrinking, or the
-        column overflowing past `justify-content: center` — is what would push
-        this block off the bottom of the screen, and neither the book nor this
-        overlay may ever scroll.
+        `flex: '0 0 auto'` is load-bearing rather than tidiness, and it only
+        works paired with the `minHeight: 0` on the book above — remove either
+        and the other stops meaning anything. Together they decide who loses when
+        the viewport is too short for both: the paper gives up height and the
+        controls stay exactly where they are. The alternative — the footer
+        shrinking, or the column overflowing past `justify-content: center` — is
+        what would push this block off the bottom of the screen, and neither the
+        book nor this overlay may ever scroll.
+
+        Measured, because arithmetic on rem is not a verification: at 1280x720
+        the book sits at its full 633.6px with 13.4px to spare below the hints,
+        and at 1920x1080 at its 900px cap with 60.2px spare. Neither scrolls.
       */}
       <div style={{
         flex: '0 0 auto',

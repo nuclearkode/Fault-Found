@@ -51,3 +51,6 @@ out/
 # cloudflare
 /.wrangler/
 /.open-next/
+
+# Blender scripted-edit backups (the skill makes these before any edit)
+blender_source/_backup_*/

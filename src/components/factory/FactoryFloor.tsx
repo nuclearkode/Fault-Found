@@ -13,6 +13,15 @@
  * silo cell occupied x −5.1..3.0 / z −4.4..−2.4, the office bay sat at [8,·,7]
  * while the office itself is at [12.3,0,7.8] and draws its own slab, and the
  * result was a set of coloured rectangles that aligned with nothing on the floor.
+ *
+ * THE SECOND RULE, added when the paint was reworked: nothing is painted here
+ * because it looks industrial. Every line implements a published requirement and
+ * names it in the comment above it — OSHA 1910.176(a) and OSHA's 1972 letter of
+ * interpretation for the aisles and their widths, NEC 110.26(A) as enforced by
+ * OSHA 1910.303(g)(1) for the red boxes in front of the electrical gear, OSHA
+ * 1910.144 / ANSI Z535.1 for what each colour is allowed to mean, and the 5S
+ * white-for-footprints convention for everything that is not a safety marking.
+ * A line that cannot be traced to one of those is a line that should not exist.
  */
 
 import { RigidBody } from '@react-three/rapier'
@@ -73,7 +82,6 @@ const MAT = {
   dado: new THREE.MeshStandardMaterial({ color: DADO_COLOR, roughness: 0.75, metalness: 0.12 }),
   ceiling: new THREE.MeshStandardMaterial({ color: CEILING_COLOR, roughness: 0.9, metalness: 0.1 }),
   epoxy: new THREE.MeshStandardMaterial({ color: EPOXY_COLOR, roughness: 0.7, metalness: 0.05 }),
-  esd: new THREE.MeshStandardMaterial({ color: '#3a3a4a', roughness: 0.7, metalness: 0.05 }),
   paintYellow: new THREE.MeshStandardMaterial({
     color: '#c4a818', roughness: 0.6, metalness: 0.1,
     emissive: '#c4a818', emissiveIntensity: 0.05,
@@ -82,6 +90,10 @@ const MAT = {
     color: '#cc3333', roughness: 0.6, metalness: 0.1,
     emissive: '#cc3333', emissiveIntensity: 0.05,
   }),
+  // White is the 5S non-safety colour — footprints, not hazards. Knocked well
+  // back from pure white: floor paint on a grey slab under a shed roof never
+  // reads as #fff, and at 1.0 it would out-shout the yellow that matters more.
+  paintWhite: new THREE.MeshStandardMaterial({ color: '#d9d9d0', roughness: 0.65, metalness: 0.05 }),
   beam: new THREE.MeshStandardMaterial({ color: '#5a5a60', roughness: 0.4, metalness: 0.7 }),
   column: new THREE.MeshStandardMaterial({ color: '#555560', roughness: 0.5, metalness: 0.6 }),
   drainFrame: new THREE.MeshStandardMaterial({ color: '#8d949b', roughness: 0.5, metalness: 0.7 }),
@@ -140,21 +152,68 @@ function boundsOf(rows: StationPlacement[]): Box | null {
 }
 
 // ── Aisles ──────────────────────────────────────────────────────────────────
-// Aisle paint marks the EDGES of a route, never its centre.
+//
+// Aisle paint marks the EDGES of a route, never its centre. What follows is the
+// arithmetic behind the widths, because none of them is a taste decision.
+//
+// OSHA 1910.176(a) requires that "sufficient safe clearances shall be allowed
+// for aisles" and that permanent aisles "shall be appropriately marked" — the
+// same duty the pre-2017 1910.22(b)(2) carried, and the one OSHA's enforcement
+// directive STD 01-01-004 interprets (it makes the point that "marked" need not
+// mean paint: pillars, cones and taped stripes all count). Neither text gives a
+// number. OSHA's letter of interpretation of 15 May 1972 does, and it is still
+// what the trade works to:
+//
+//   AISLE WIDTH  "at least 3 feet wider than the largest equipment to be
+//                 utilized, or a minimum of 4 feet"
+//   LINE WIDTH   "any width 2 inches or more is considered acceptable"
+//
+// So an aisle width here is computed from the widest thing that uses it. Park a
+// counterbalance truck in this building and the paint moves on its own.
 
-/** Half-width of the main pedestrian route: a 2.8 m through-aisle. */
-const AISLE_HALF = 1.4
+/** 3 ft (914 mm) — what the interpretation adds to the equipment width. */
+const OSHA_AISLE_EXTRA = 0.914
+/** 4 ft (1219 mm) — the floor no marked aisle drops below, whatever uses it. */
+const OSHA_AISLE_MIN = 1.219
+
 /**
- * The operator aisle across the front of the production bay. Narrower than the
- * through-route on purpose — it is a place to stand at the machine, not a route
- * to somewhere. Its north edge is also the south edge of the epoxy bay, so the
- * two are the same number and cannot drift.
+ * The widest thing driven down the main route.
+ *
+ * This shed has no vehicle door, no charging bay and no forklift: what moves a
+ * load in here is a hand pallet truck, 685 mm across the forks, under a
+ * 1200 × 800 pallet. The load is wider than the truck, so the load is what
+ * governs — 800 mm.
  */
-const OPERATOR_N = -2.4
-const OPERATOR_S = -1.0
-/** East end of the cross aisle, which is also the east edge of the north spur. */
-const CROSS_X = 11.5
-const CROSS_X_W = -11.5
+const MHE_WIDTH = 0.80
+
+/** Main north-south route, entry wall to the line: 800 + 914 = 1.714 m. */
+const MAIN_AISLE_W = Math.max(MHE_WIDTH + OSHA_AISLE_EXTRA, OSHA_AISLE_MIN)
+const MAIN_HALF = MAIN_AISLE_W / 2
+/** Foot-only routes. Nothing is driven down them, so they sit on the 4 ft floor. */
+const FOOT_AISLE_W = OSHA_AISLE_MIN
+
+/**
+ * The cross aisle, across the front of the production bay.
+ *
+ * Its north edge is set off the STRUCTURE, not off the machine: the column line
+ * generated below runs at z = −7.5, −2.5, 2.5, 7.5 and each stanchion is 0.3 m
+ * square, so the nearest one's south face is at −2.35 and this line goes 50 mm
+ * south of that. Painting an aisle edge through a column is how floor marking
+ * gets a reputation for being wallpaper. The same number is PRODUCTION_BAY's
+ * south edge by construction, so the epoxy and the paint cannot drift apart.
+ */
+const COLUMN_HALF = 0.15
+const CROSS_N = -2.5 + COLUMN_HALF + 0.05
+const CROSS_S = CROSS_N + FOOT_AISLE_W
+
+/**
+ * How close a line stops to a wall face.
+ *
+ * Aisles run INTO the wall. The previous set stopped 300 mm short of the south
+ * wall and 3.5 m short of the west one, which is the specific failure the rework
+ * was for: a route that ends in open floor is not telling anyone anything.
+ */
+const WALL_STOP = 0.05
 
 // ── Equipment footprints the paint is derived from ──────────────────────────
 
@@ -179,11 +238,18 @@ const lineBounds = boundsOf(MAIN_LINE)
  *
  * Union of the MPS line (x −4.30..4.30 from DEFAULT_LAYOUT) and the silo cell
  * (x −5.1..3.0), grown by the working margin, with the south edge cut back to
- * the operator aisle so the epoxy stops exactly where the yellow paint starts.
- * Result: x ≈ −5.95..5.15, z ≈ −5.25..−2.40.
+ * the cross aisle so the epoxy stops exactly where the yellow paint starts.
+ * Result: x ≈ −5.95..5.15, z ≈ −5.25..−2.30.
+ *
+ * WHAT THE GREEN IS. It is not a decorative rectangle: it is a coated work bay,
+ * the sage-green epoxy every real production floor puts under machinery that
+ * leaks oil, coolant and hydraulic fluid, because a coated slab can be squeegeed
+ * and bare concrete cannot. That is also why the two floor drains sit just
+ * outside it. Its outline is painted white below — 5S marks a machine's place so
+ * you can see at a glance when something is standing where it should not be.
  */
 const grownLine = grow(lineBounds ? unite(lineBounds, SILO) : SILO, BAY_MARGIN)
-const PRODUCTION_BAY: Box = { ...grownLine, z1: Math.min(grownLine.z1, OPERATOR_N) }
+const PRODUCTION_BAY: Box = { ...grownLine, z1: Math.min(grownLine.z1, CROSS_N) }
 
 /**
  * SOUTH BAY — green epoxy under the two standalone stations.
@@ -193,50 +259,118 @@ const PRODUCTION_BAY: Box = { ...grownLine, z1: Math.min(grownLine.z1, OPERATOR_
  * stations' centre line and ran 3 m further south into empty floor. It is a
  * permanently marked bay, so it is painted even when the silo rig is loaded and
  * the bay is standing empty — that is what floor paint is for.
+ *
+ * Same coating, same reason, as the production bay. The main aisle runs straight
+ * through the middle of it, between ST90 and ST100, and that is fine: a coating
+ * is a surface finish and the paint goes on top of it. It is why this bay gets no
+ * outline of its own — a work-cell boundary with a traffic aisle through it would
+ * be a lie. The two station footprints inside it are marked instead.
  */
 const standaloneBounds = boundsOf(STANDALONE)
 const SOUTH_BAY: Box | null = standaloneBounds ? grow(standaloneBounds, BAY_MARGIN) : null
+
+// ── Electrical working space ────────────────────────────────────────────────
+//
+// THE RED BOXES ARE NOT DECORATION. DO NOT DELETE THEM.
+//
+// OSHA 1910.303(g)(1) adopts NEC (NFPA 70) 110.26(A) wholesale: every piece of
+// electrical equipment likely to be examined, adjusted or serviced while
+// energised must have clear working space in front of it, and that space must be
+// kept clear. Note the standard number — 110.26 is the NEC. NFPA 70E is the
+// companion standard and governs how you work on the thing (electrically safe
+// work condition, approach boundaries, arc-flash PPE); the NEC governs the room
+// around it, which is what floor paint can express.
+//
+//   DEPTH  Table 110.26(A)(1): 900 mm (3 ft) for 0–600 V nominal under Condition
+//          1 — exposed live parts on one side of the working space and nothing
+//          live or grounded on the other. Both runs in this shed face open floor,
+//          so Condition 1 is the row that applies. Measured from the front of the
+//          enclosure, NOT from the wall behind it.
+//   WIDTH  110.26(A)(2): the width of the equipment, or 750 mm, whichever is
+//          greater. Which of the two governs differs between the two panels here,
+//          so both are run through widenTo() rather than either being assumed.
+//
+// Painted red because ANSI Z535.1 / OSHA 1910.144 give red to danger, and a
+// space you may not obstruct in front of live gear is exactly that. It is the
+// only thing on this floor that tells a person not to park a pallet here.
+
+/** 3 ft, Table 110.26(A)(1) Condition 1, ≤600 V. */
+const NEC_WORK_DEPTH = 0.914
+/** 30 in, 110.26(A)(2). */
+const NEC_WORK_MIN_W = 0.762
+
+/** Grow a span about its own centre until it meets a minimum width. */
+const widenTo = (a: number, b: number, min: number): [number, number] => {
+  const c = (a + b) / 2
+  const h = Math.max((b - a) / 2, min / 2)
+  return [c - h, c + h]
+}
 
 /**
  * SWITCHGEAR RUN on the north wall, from the placements in GameCanvas: two
  * 0.8 × 0.4 PLC cabinets at x = 6.0 and 7.4 and the 2.0 × 0.6 MCC at x = 10.2,
  * all backed onto the wall face at z = −10.
+ *
+ * z1 is the MCC's front face and not the wall + 0.6 by luck: the MCC sits at
+ * z = −9.65 and is the deepest of the three, so its door is the plane the
+ * working space is measured off. Take the depth off the PLC cabinets instead and
+ * the paint would fall 250 mm short in front of the biggest enclosure in the room.
  */
-const SWITCHGEAR: Box = { x0: 6.0 - 0.4, x1: 10.2 + 1.0, z0: Z_MIN, z1: Z_MIN + 0.6 }
-/** Working clearance in front of live switchgear. This is what the red paint is. */
-const SWITCHGEAR_CLEARANCE = 1.0
+const SWITCHGEAR: Box = { x0: 6.0 - 0.4, x1: 10.2 + 1.0, z0: Z_MIN, z1: -9.65 + 0.3 }
 
 /**
- * CONTROL BAY — dark anti-static epoxy, and the red clearance line around it.
+ * The red keep-clear box in front of it.
  *
- * One box drives both, so the ESD floor and the red boundary are by construction
- * the same rectangle. It used to be a 9 × 5 slab at [10,·,−7.5] reaching x = 14.5,
- * i.e. 3 m past the last cabinet and straight through the east-wall stores aisle.
- * x ≈ 5.0..11.6, z = −10.0..−8.4.
+ * 5.6 m of line-up is far wider than the 750 mm floor, so 110.26(A)(2) adds
+ * nothing here and the box is exactly as wide as the equipment. It is painted
+ * back to the wall rather than starting at the cabinet doors so it reads as one
+ * enclosed zone; the 914 mm that the code actually requires is the part in front
+ * of SWITCHGEAR.z1.
+ *
+ * The previous box was 1.0 m deep off the wall and ran 600 mm west and 400 mm
+ * east of the gear for no stated reason. Both fudge factors are gone.
  */
-const CONTROL_BAY: Box = {
-  x0: SWITCHGEAR.x0 - 0.6,
-  x1: SWITCHGEAR.x1 + 0.4,
+const [SWITCHGEAR_SPACE_X0, SWITCHGEAR_SPACE_X1] =
+  widenTo(SWITCHGEAR.x0, SWITCHGEAR.x1, NEC_WORK_MIN_W)
+const SWITCHGEAR_SPACE: Box = {
+  x0: SWITCHGEAR_SPACE_X0,
+  x1: SWITCHGEAR_SPACE_X1,
   z0: SWITCHGEAR.z0,
-  z1: SWITCHGEAR.z1 + SWITCHGEAR_CLEARANCE,
+  z1: SWITCHGEAR.z1 + NEC_WORK_DEPTH,
 }
 
 /**
- * BREAKER PANEL working space on the west wall — the 0.6 × 0.9 × 0.18 enclosure
- * at [−14.5, 1.6, −5], plus reach clearance. Painted as a boundary (three lines)
- * rather than the solid 2 × 2 red slab it was, which read as a spill.
+ * BREAKER PANEL working space on the west wall.
+ *
+ * The 0.6 × 0.9 × 0.18 enclosure GameCanvas places at [−14.5, 1.6, −5], turned a
+ * quarter turn so its door faces east into the room. Turned, its 0.6 m width
+ * lies along z and its front face lands at x = −14.41 — the panel stands a little
+ * off the wall, which is why the depth is taken off the face and not off X_MIN.
+ *
+ * This is the panel where 110.26(A)(2) does the work: at 600 mm the enclosure is
+ * narrower than the 750 mm minimum, so the painted box is wider than the box it
+ * belongs to. That is the rule working, not an error.
  */
-const BREAKER: Box = { x0: X_MIN, x1: X_MIN + 0.18, z0: -5 - 0.3, z1: -5 + 0.3 }
-const BREAKER_BAY: Box = { x0: BREAKER.x0, x1: BREAKER.x1 + 1.2, z0: BREAKER.z0 - 0.45, z1: BREAKER.z1 + 0.45 }
+const BREAKER_FACE_X = -14.5 + 0.18 / 2
+const [BREAKER_Z0, BREAKER_Z1] = widenTo(-5 - 0.3, -5 + 0.3, NEC_WORK_MIN_W)
+const BREAKER_SPACE: Box = {
+  x0: X_MIN,
+  x1: BREAKER_FACE_X + NEC_WORK_DEPTH,
+  z0: BREAKER_Z0,
+  z1: BREAKER_Z1,
+}
 
 /**
  * EAST-WALL STORES RUN — two 2.5 m shelving bays at z = −6.6 / −3.4 and the
  * 2.4 m bench at z = −0.2, all turned to back onto the wall (see GameCanvas).
- * Only its aisle edge is painted; a stores aisle is bare concrete.
+ *
+ * Marked as a 5S storage footprint, not as an aisle. The old marking was a lone
+ * yellow line at x = 13.6 that ran parallel to the racks, touched nothing at
+ * either end, and implied an aisle 550 mm wide between itself and the racking —
+ * i.e. it claimed to be a route while marking out something no one could walk
+ * down. What is true about this run is where the racking is allowed to stand.
  */
 const STORES: Box = { x0: 14.15, x1: X_MAX, z0: -6.6 - 1.25, z1: -0.2 + 1.2 }
-/** Aisle edge, set west of the run and clear of the x = 13 column line. */
-const STORES_EDGE_X = 13.6
 
 /**
  * The supervisor's office has NO zone here. It draws its own slab — a
@@ -247,62 +381,167 @@ const STORES_EDGE_X = 13.6
  */
 
 // ── Floor paint ─────────────────────────────────────────────────────────────
+//
+// WHAT THE THREE COLOURS ARE ALLOWED TO MEAN.
+//
+// OSHA 1910.144 fixes two of them and nothing else: red is "the basic color for
+// the identification of fire protection equipment, containers of flammable
+// liquids, and stop buttons or switches used for emergency stopping", and yellow
+// is "the basic color for designating caution and for marking physical hazards
+// such as striking against, stumbling, falling, tripping and caught-in-between".
+// ANSI Z535.1 fills in the rest of the safety palette — red danger, orange
+// warning, yellow caution, green safety and first aid, blue notice — though
+// strictly it is written for SIGNS, not for slabs, and neither document says a
+// word about where a machine is supposed to stand.
+//
+// That gap is what the 5S floor-marking convention fills, and its central idea
+// is worth more than the exact shades: keep the safety colours for safety, and
+// mark everything else in white. Aisles and traffic lanes yellow; equipment,
+// workstations, racking and material footprints white.
+//
+// So there are exactly three meanings on this floor and nothing else:
+//
+//   YELLOW  a route — you walk or wheel a load along it
+//   RED     a space that must be kept clear: electrical working space
+//   WHITE   the footprint of a thing, so you can see when it is out of place
+//
+// There is deliberately no yellow-and-black hatching. Hatching marks a physical
+// hazard you must stay out of — a door swing, a pit, the strike zone of a
+// machine — and this slab has none. Hatching an area that is merely important is
+// how a floor ends up meaning nothing at all.
 
-/** 100 mm safety paint, sitting proud of both the slab and the epoxy bays. */
+/**
+ * Stripe width: 100 mm.
+ *
+ * OSHA's 1972 interpretation accepts "any width 2 inches or more"; 4 in / 100 mm
+ * is the trade default because it is what stays legible from a moving truck
+ * without eating floor. It is used for every line here, safety or footprint, so
+ * that colour is the only variable a reader has to decode.
+ */
 const PAINT = 0.1
 const PAINT_Y = 0.008
 const ZONE_Y = 0.003
 
-interface Stripe { pos: [number, number, number]; args: [number, number, number]; red?: boolean }
+/**
+ * Half a stripe. Every boundary line on this floor is painted OUTSIDE the thing
+ * it bounds by this much, so that the line's INNER edge lands on the dimension.
+ *
+ * It matters twice. For the red boxes it is the difference between 914 mm of
+ * genuinely clear floor and 864 mm of clear floor plus 50 mm of paint you are
+ * standing on — the NEC dimension is to clear space, not to the middle of a
+ * brush stroke. For the white footprints it is the difference between a visible
+ * line and a line half hidden under the rack it marks. The first version of this
+ * rework centred the switchgear return legs on the cabinet sides, and half of
+ * each leg duly disappeared under the switchgear it was there to mark.
+ */
+const LINE_LIP = 0.05
+
+type Paint = 'yellow' | 'red' | 'white'
+
+interface Stripe { pos: [number, number, number]; args: [number, number, number]; paint: Paint }
 
 /** A line of paint running east-west at a given z. */
-const alongX = (z: number, x0: number, x1: number, red = false): Stripe => ({
-  pos: [(x0 + x1) / 2, PAINT_Y, z], args: [x1 - x0, 0.01, PAINT], red,
+const alongX = (z: number, x0: number, x1: number, paint: Paint = 'yellow'): Stripe => ({
+  pos: [(x0 + x1) / 2, PAINT_Y, z], args: [x1 - x0, 0.01, PAINT], paint,
 })
 /** A line of paint running north-south at a given x. */
-const alongZ = (x: number, z0: number, z1: number, red = false): Stripe => ({
-  pos: [x, PAINT_Y, (z0 + z1) / 2], args: [PAINT, 0.01, z1 - z0], red,
+const alongZ = (x: number, z0: number, z1: number, paint: Paint = 'yellow'): Stripe => ({
+  pos: [x, PAINT_Y, (z0 + z1) / 2], args: [PAINT, 0.01, z1 - z0], paint,
 })
 
 /**
- * Every line on the floor, and the route or hazard each one bounds.
+ * The four sides of a Box, minus any side something else already paints.
+ *
+ * The skips are the point. Every omitted side is a side where this box shares an
+ * edge with a wall or with an aisle line, and painting it anyway would double the
+ * line up into a 200 mm band that means two different things at once.
+ */
+type Side = 'n' | 's' | 'e' | 'w'
+function outline(b: Box, paint: Paint, skip: readonly Side[] = []): Stripe[] {
+  const lines: Stripe[] = []
+  if (!skip.includes('n')) lines.push(alongX(b.z0, b.x0, b.x1, paint))
+  if (!skip.includes('s')) lines.push(alongX(b.z1, b.x0, b.x1, paint))
+  if (!skip.includes('w')) lines.push(alongZ(b.x0, b.z0, b.z1, paint))
+  if (!skip.includes('e')) lines.push(alongZ(b.x1, b.z0, b.z1, paint))
+  return lines
+}
+
+/**
+ * The red boxes as PAINTED, i.e. the code space plus the lip. Named rather than
+ * inlined because the north spur has to line up with the switchgear box's east
+ * leg, and two lines meant to be collinear must come from one number.
+ */
+const SWITCHGEAR_KEEP_CLEAR = grow(SWITCHGEAR_SPACE, LINE_LIP)
+const BREAKER_KEEP_CLEAR = grow(BREAKER_SPACE, LINE_LIP)
+
+/**
+ * Every line on the floor, the standard it implements, and what it connects to.
+ *
+ * The aisles form one connected network — south wall to cross aisle to north
+ * spur to the switchgear, with the cross aisle running wall to wall — because
+ * that is the difference between a marked route and a decorative stripe. Nothing
+ * below ends in open floor: every yellow line terminates on a wall, on another
+ * yellow line, or on the red boundary it is not allowed to cross.
  *
  * Module scope, not useMemo: none of it depends on props or state, so it is built
  * once for the process rather than once per mount.
  */
 const STRIPES: Stripe[] = [
-  // ── MAIN WALKWAY — 2.8 m through-route, south wall up to the operator aisle.
-  // It used to run the full 20 m depth, which took it straight under the silo
-  // cell: 18 m of yellow paint disappearing beneath a machine. A walkway ends
-  // where you can no longer walk.
-  ...([-AISLE_HALF, AISLE_HALF] as const).map((x) => alongZ(x, OPERATOR_S, Z_MAX - 0.3)),
+  // ── MAIN AISLE (yellow) — 1.71 m, sized in the Aisles block above for a hand
+  // pallet truck under a euro pallet. Runs from the entry wall north to the
+  // cross aisle and stops there, because the production bay is what is on the
+  // far side. It used to run the full 20 m depth, which took 18 m of it under
+  // the silo cell. A route ends where you can no longer walk.
+  ...([-MAIN_HALF, MAIN_HALF] as const).map((x) => alongZ(x, CROSS_S, Z_MAX - WALL_STOP)),
 
-  // ── OPERATOR AISLE — across the front of the production bay. Its north edge
+  // ── CROSS AISLE (yellow) — 1.22 m, the 4 ft minimum, foot traffic only: it is
+  // where an operator stands at the line, not a route to somewhere. Now runs the
+  // full width of the building, west wall to the stores footprint, so the main
+  // aisle, the north spur and the stores all hang off one spine. Its north edge
   // is PRODUCTION_BAY.z1 by construction, so paint and epoxy share an edge.
-  alongX(OPERATOR_N, CROSS_X_W, CROSS_X),
-  alongX(OPERATOR_S, CROSS_X_W, CROSS_X),
+  alongX(CROSS_N, X_MIN + WALL_STOP, STORES.x0 - LINE_LIP),
+  alongX(CROSS_S, X_MIN + WALL_STOP, STORES.x0 - LINE_LIP),
 
-  // ── NORTH SPUR — the route from the cross aisle up to the control corner.
-  // Without it the walkway system stopped at the line and the switchgear was
-  // reached across unmarked floor. Threaded between the production bay (ends
-  // x ≈ 5.15) and the stores aisle edge (x = 13.6), and it stops on the red
-  // clearance line rather than crossing it.
-  ...([CROSS_X - 2.8, CROSS_X] as const).map((x) => alongZ(x, CONTROL_BAY.z1, OPERATOR_N)),
+  // ── NORTH SPUR (yellow) — 1.22 m, the marked way up to the switchgear. Its
+  // east edge is the east edge of the red working space, so the yellow line and
+  // the red line meet end-to-end and read as one continuous boundary that simply
+  // changes meaning where the electrical space begins. It stops ON that
+  // boundary: you are told how to get there and told not to stand in it.
+  ...([SWITCHGEAR_KEEP_CLEAR.x1 - FOOT_AISLE_W, SWITCHGEAR_KEEP_CLEAR.x1] as const)
+    .map((x) => alongZ(x, SWITCHGEAR_SPACE.z1, CROSS_N)),
 
-  // ── SWITCHGEAR CLEARANCE (red) — the front edge of CONTROL_BAY plus return
-  // legs to the wall, so it reads as an enclosed zone and not a stray line.
-  alongX(CONTROL_BAY.z1, CONTROL_BAY.x0, CONTROL_BAY.x1, true),
-  alongZ(CONTROL_BAY.x0, CONTROL_BAY.z0, CONTROL_BAY.z1, true),
-  alongZ(CONTROL_BAY.x1, CONTROL_BAY.z0, CONTROL_BAY.z1, true),
+  // ── SWITCHGEAR WORKING SPACE (red) — NEC 110.26(A) / OSHA 1910.303(g)(1).
+  // Three sides; the fourth is the north wall. KEEP THIS.
+  ...outline(SWITCHGEAR_KEEP_CLEAR, 'red', ['n']),
 
-  // ── BREAKER PANEL working space (red), same three-line treatment.
-  alongZ(BREAKER_BAY.x1, BREAKER_BAY.z0, BREAKER_BAY.z1, true),
-  alongX(BREAKER_BAY.z0, BREAKER_BAY.x0, BREAKER_BAY.x1, true),
-  alongX(BREAKER_BAY.z1, BREAKER_BAY.x0, BREAKER_BAY.x1, true),
+  // ── BREAKER PANEL WORKING SPACE (red) — same standard, same treatment, and
+  // here it is the 750 mm minimum width rather than the panel that sets the box.
+  // Three sides; the fourth is the west wall. KEEP THIS TOO.
+  ...outline(BREAKER_KEEP_CLEAR, 'red', ['w']),
 
-  // ── STORES AISLE EDGE — as long as the run it serves, and no longer.
-  alongZ(STORES_EDGE_X, STORES.z0 - 0.05, STORES.z1 + 0.05),
+  // ── PRODUCTION BAY FOOTPRINT (white, 5S) — the boundary of the coated work
+  // bay. Three sides: the fourth is the cross aisle's north line, which is the
+  // same number, so the aisle already draws it.
+  ...outline(PRODUCTION_BAY, 'white', ['s']),
+
+  // ── STANDALONE STATION FOOTPRINTS (white, 5S) — ST90 and ST100 marked
+  // individually rather than as one bay, because the main aisle runs between
+  // them. Derived from the same footprint() the bays are derived from, so a
+  // station that moves in factoryLayout.ts takes its outline with it.
+  ...STANDALONE.flatMap((s) => outline(grow(footprint(s), LINE_LIP), 'white')),
+
+  // ── STORES FOOTPRINT (white, 5S) — where the racking and the bench are
+  // allowed to stand. Three sides; the fourth is the east wall.
+  // x1 is pinned back to the wall face after the lip, or the two return legs
+  // would run 50 mm into the east wall and vanish inside it.
+  ...outline({ ...grow(STORES, LINE_LIP), x1: X_MAX }, 'white', ['e']),
 ]
+
+const PAINT_MAT: Record<Paint, THREE.Material> = {
+  yellow: MAT.paintYellow,
+  red: MAT.paintRed,
+  white: MAT.paintWhite,
+}
 
 function FloorPaint() {
   return (
@@ -310,9 +549,11 @@ function FloorPaint() {
       {STRIPES.map((s, i) => (
         <mesh
           key={i}
-          name={`floor_line_${i}`}
+          // Colour in the name, because the colour is the meaning: a probe or a
+          // raycast hit that says floor_line_red_12 tells you what it hit.
+          name={`floor_line_${s.paint}_${i}`}
           position={s.pos}
-          material={s.red ? MAT.paintRed : MAT.paintYellow}
+          material={PAINT_MAT[s.paint]}
           receiveShadow
         >
           <boxGeometry args={s.args} />
@@ -479,7 +720,6 @@ function Dado() {
 
 export function FactoryFloor() {
   const production = slab(PRODUCTION_BAY, ZONE_Y)
-  const control = slab(CONTROL_BAY, ZONE_Y)
   const south = SOUTH_BAY ? slab(SOUTH_BAY, ZONE_Y) : null
 
   return (
@@ -491,14 +731,21 @@ export function FactoryFloor() {
         </mesh>
       </RigidBody>
 
-      {/* ── Epoxy-coated work zones. Every one is derived above from the
-             equipment standing on it; see PRODUCTION_BAY / CONTROL_BAY /
-             SOUTH_BAY. There is no office zone — the office draws its own. ── */}
+      {/* ── SAGE-GREEN EPOXY WORK BAYS ─────────────────────────────────────
+             Coated slab under the machinery — the ordinary green two-pack every
+             production floor puts where oil, coolant and hydraulic fluid land,
+             because a coated bay can be squeegeed into the drains beside it and
+             bare concrete just soaks it up. Each one is derived above from the
+             footprint of the equipment standing on it (PRODUCTION_BAY,
+             SOUTH_BAY), and each carries a white 5S outline in STRIPES so the
+             coated area reads as a marked work cell rather than a green patch.
+
+             There is no office zone — the office draws its own slab. There is no
+             longer a control-corner zone either: the dark mat that used to sit
+             under the switchgear has been removed, and the red NEC working-space
+             box is what marks that floor now. ── */}
       <mesh name="floor_zone_production" position={production.position} material={MAT.epoxy} receiveShadow>
         <boxGeometry args={production.args} />
-      </mesh>
-      <mesh name="floor_zone_control" position={control.position} material={MAT.esd} receiveShadow>
-        <boxGeometry args={control.args} />
       </mesh>
       {south && (
         <mesh name="floor_zone_south" position={south.position} material={MAT.epoxy} receiveShadow>
