@@ -85,6 +85,29 @@ export function IoTable() {
     <div className="ff-io">
       <div className="ff-io-head">
         Data Files — I/O image, read live from the processor
+        {/*
+          The key, for the same reason the ladder has one: colour is the fastest
+          thing on this screen and the slowest thing to explain. Nobody hunting a
+          stuck output reads the digits — they read the green column and go to
+          the odd one out, which only works if the pane itself says what green
+          means.
+
+          It is deliberately TWO flat states. The ladder next door has three,
+          because there a contact can be made and still starved of power, and
+          that middle amber state is the best teaching device in this UI. None of
+          that applies here: this table reports the I/O image, so a bit is 1 or
+          it is 0 and green claims nothing beyond the value in the cell it sits
+          in. Saying that plainly is what keeps the two panes from looking like
+          they disagree when a bit shows 1 here and amber over there.
+        */}
+        <span
+          className="ff-io-key"
+          aria-label="Colour key: green means the bit is 1"
+          title="Green is the bit's value and nothing more — it does not mean the rung driving it is satisfied."
+        >
+          <i className="ff-io-sw ff-io-sw-off" /> 0
+          <i className="ff-io-sw ff-io-sw-on" /> 1
+        </span>
         <span className="ff-io-count">{rows.length} addresses</span>
       </div>
       <table className="ff-io-table">

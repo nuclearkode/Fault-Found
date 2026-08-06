@@ -161,31 +161,88 @@ export function ReferenceBook() {
         </Page>
       </div>
 
-      {/* ── Controls, on the desk rather than on the paper ─────────────── */}
+      {/*
+        ── Controls, on the desk rather than on the paper ─────────────────
+
+        Centred, and that is the entire point of the arrangement. These used to
+        run as one left-weighted row — PREV, CONTENTS, counter, NEXT, then the
+        key hints trailing off to the right — and the first player to open the
+        manual could not find the way to turn the page. Strung out beside a line
+        of grey hint text the buttons read as a status bar, and nobody clicks a
+        status bar. Turning forward is the only thing anyone does in here nine
+        times out of ten, so it now sits on the centre line, which is where the
+        eye already is when it comes off the bottom of the right-hand page.
+
+        The row is a `1fr auto 1fr` grid rather than a flex row because NEXT is
+        deliberately wider than PREV, and a flex row would hang the whole group
+        off to the left of true centre by half that difference. Equal side
+        columns keep the spread counter on the middle of the book and let the two
+        buttons flank it symmetrically however wide their labels get.
+
+        `flex: '0 0 auto'` is load-bearing rather than tidiness. The book above
+        is `min(900px, 88vh)` and is left shrinkable on purpose: on a viewport
+        too short for both, the paper gives up height and the controls stay
+        exactly where they are. The alternative — the footer shrinking, or the
+        column overflowing past `justify-content: center` — is what would push
+        this block off the bottom of the screen, and neither the book nor this
+        overlay may ever scroll.
+      */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '0.9rem',
-        fontFamily: MONO, fontSize: '0.68rem', letterSpacing: '0.1em',
+        flex: '0 0 auto',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: '0.4rem',
       }}>
-        <TurnButton label="◀  PREV" onClick={() => turn(-1)} disabled={atStart} />
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          columnGap: '1.2rem',
+          width: 'min(34rem, 92vw)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <TurnButton tone="secondary" label="◀  PREV" onClick={() => turn(-1)} disabled={atStart} />
+          </div>
 
-        <button
-          onClick={() => goTo(0)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: '#8a8172', fontFamily: MONO, fontSize: '0.62rem',
-            letterSpacing: '0.16em', padding: '0.3rem 0.2rem',
-          }}
-        >
-          CONTENTS
-        </button>
+          {/* Counter over contents: the label the reader checks, then the escape
+              hatch back to the list. Both belong on the centre line, and a fixed
+              minimum stops the flanking buttons twitching as the number grows. */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            gap: '0.25rem', minWidth: '9rem',
+          }}>
+            <div style={{
+              fontFamily: MONO, fontSize: '0.68rem', letterSpacing: '0.1em',
+              lineHeight: 1.2, color: '#cfc2a2', whiteSpace: 'nowrap',
+            }}>
+              SPREAD <span style={{ color: RED, fontWeight: 700 }}>{spread + 1}</span> OF {spreadCount}
+            </div>
 
-        <div style={{ color: '#cfc2a2', minWidth: '9.5rem', textAlign: 'center' }}>
-          SPREAD <span style={{ color: RED, fontWeight: 700 }}>{spread + 1}</span> OF {spreadCount}
+            <button
+              onClick={() => goTo(0)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                // A dotted rule under it, because a bare grey word between two
+                // framed buttons does not read as something you can press.
+                borderBottom: '1px dotted rgba(138, 129, 114, 0.55)',
+                color: '#8a8172', fontFamily: MONO, fontSize: '0.6rem',
+                letterSpacing: '0.16em', lineHeight: 1.2, padding: '0 0.15rem 1px',
+              }}
+            >
+              CONTENTS
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <TurnButton tone="primary" label="NEXT  ▶" onClick={() => turn(1)} disabled={atEnd} />
+          </div>
         </div>
 
-        <TurnButton label="NEXT  ▶" onClick={() => turn(1)} disabled={atEnd} />
-
-        <div style={{ color: '#6a6357', fontSize: '0.6rem', letterSpacing: '0.14em', marginLeft: '0.6rem' }}>
+        {/* The hints stay — they are how anyone learns the arrows work at all —
+            but a line below the buttons and dimmer than everything above it. */}
+        <div style={{
+          fontFamily: MONO, fontSize: '0.6rem', letterSpacing: '0.14em',
+          lineHeight: 1.2, color: '#6a6357',
+        }}>
           ← → TURN PAGE · B OR ESC TO CLOSE
         </div>
       </div>
@@ -359,19 +416,58 @@ function Contents({ onJump }: { onJump: (i: number) => void }) {
 }
 
 // ── Page-turn button ────────────────────────────────────────────────────────
+/**
+ * The two buttons are the same control at different weights, not two controls.
+ *
+ * `primary` is NEXT and only ever NEXT: the filled ground, the larger type and
+ * the one warm glow on the desk, because forward is the move. `secondary` is
+ * PREV, which has to be findable without being offered — an outline on the bay
+ * behind it and nothing else. Both are drawn from the same red the manual uses
+ * for its own headings, so the desk furniture still belongs to the book.
+ *
+ * Disabled reads identically in both tones. A dead control at the front or back
+ * cover should look unavailable, not like a third, quieter kind of button.
+ *
+ * The `lineHeight: 1` is not cosmetic. It pins the button height to type size
+ * plus padding, so the footer's total height is arithmetic rather than a
+ * function of whichever mono font the player's machine actually resolved — the
+ * whole no-scroll budget below the book depends on that number being knowable.
+ */
 function TurnButton({
-  label, onClick, disabled,
-}: { label: string; onClick: () => void; disabled: boolean }) {
+  label, onClick, disabled, tone,
+}: {
+  label: string
+  onClick: () => void
+  disabled: boolean
+  tone: 'primary' | 'secondary'
+}) {
+  const primary = tone === 'primary'
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.filter = 'brightness(1.22)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
       style={{
-        background: disabled ? 'rgba(255,255,255,0.02)' : 'rgba(163, 53, 44, 0.14)',
-        border: `1px solid ${disabled ? 'rgba(255,255,255,0.06)' : 'rgba(163, 53, 44, 0.45)'}`,
-        color: disabled ? '#4d483f' : '#e2c9a6',
-        fontFamily: MONO, fontSize: '0.66rem', fontWeight: 600, letterSpacing: '0.12em',
-        padding: '0.45rem 0.9rem', borderRadius: '3px',
+        background: disabled
+          ? 'rgba(255,255,255,0.02)'
+          : primary ? 'rgba(163, 53, 44, 0.32)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${
+          disabled ? 'rgba(255,255,255,0.06)'
+            : primary ? 'rgba(163, 53, 44, 0.8)' : 'rgba(196, 172, 133, 0.3)'
+        }`,
+        boxShadow: primary && !disabled
+          ? '0 5px 16px rgba(163, 53, 44, 0.22), inset 0 1px 0 rgba(255, 225, 180, 0.14)'
+          : 'none',
+        color: disabled ? '#4d483f' : primary ? '#f4dcbc' : '#c2ad8c',
+        fontFamily: MONO,
+        fontSize: primary ? '0.76rem' : '0.64rem',
+        fontWeight: primary ? 700 : 600,
+        letterSpacing: primary ? '0.16em' : '0.12em',
+        lineHeight: 1,
+        padding: primary ? '0.5rem 1.45rem' : '0.42rem 0.9rem',
+        borderRadius: '3px',
+        whiteSpace: 'nowrap',
         cursor: disabled ? 'default' : 'pointer',
       }}
     >

@@ -152,39 +152,32 @@ function Panel() {
           {briefing || 'No report was left.'}
         </div>
 
-        {/* The thing a stranger did not know. Stated flatly, once. */}
-        <Label>YOUR JOB</Label>
-        <div style={{
-          fontSize: '0.82rem', lineHeight: 1.7, color: INK,
-          marginBottom: '1.3rem',
-        }}>
-          You are the maintenance technician, not the operator.{' '}
-          <span style={{ color: BRIGHT }}>
-            Something on this cell has failed. Work out what, repair it, and have
-            the line running again before the shift clock reaches zero.
-          </span>{' '}
-          The fault may be in the program, in the wiring, or in the ironwork —
-          part of the job is telling which. Pressing START at it will not fix it.
-        </div>
+        {/* ── Everything that used to sit here has been cut ────────────────────
+            There was a YOUR JOB paragraph, a red LOCK OFF FIRST box, and a
+            six-item key list. Counted honestly, this screen asked a stranger to
+            hold five things before they were allowed to move: the symptom, their
+            role, the goal, a three-step safety procedure and six bindings. That
+            is roughly four more than anyone holds, and it is the last screen
+            before the pointer is captured — so the cost of overrunning is that
+            they skim ALL of it, including the one line that mattered.
 
-        {/* Lock-off is the one procedure the game will physically refuse you for
-            skipping, so it is the one procedure that gets stated up front. */}
-        <div style={{
-          border: '1px solid rgba(230,57,70,0.28)',
-          background: 'rgba(230,57,70,0.05)',
-          borderRadius: '3px', padding: '0.75rem 0.9rem',
-          marginBottom: '1.4rem',
-        }}>
-          <Label>BEFORE YOUR HANDS GO INSIDE THE GUARD</Label>
-          <div style={{ fontSize: '0.78rem', lineHeight: 1.75, color: INK }}>
-            Lock off first, or the repair will be refused:{' '}
-            <span style={{ color: BRIGHT }}>
-              open the CABINET DOOR, throw the MAIN ISOLATOR
-            </span>{' '}
-            until it reads LOCKED OFF, then work. Unlock it again to prove the
-            line runs.
-          </div>
-        </div>
+            None of it is lost, and none of it was being read here anyway:
+
+              role + keys      the first-run shift card, shown once, in-world
+              lock-off         the crosshair, at the instant it refuses the
+                               repair — which is when it is finally meaningful
+                               rather than abstract
+              all of the above the manual, [B], re-readable mid-shift
+
+            Teaching lock-off here was teaching it at the one moment the player
+            has no way to act on it. Teaching it at the point of refusal is the
+            same information delivered when it answers a question they are
+            actually asking. Repetition across three screens did not reinforce
+            it; it just made this screen skippable.
+
+            What survives is the ONE thing that is specific to this call and
+            cannot be learned anywhere else: what the operator saw. That is the
+            hook and the first clue, and it now has the screen to itself. ── */}
 
         <div style={{
           display: 'flex', alignItems: 'center', gap: '1.1rem',
@@ -205,21 +198,17 @@ function Panel() {
           </span>
         </div>
 
-        {/* The real key map, from src/input/keymap.ts. The title screen's four-key
-            hint predated the laptop, the manual and the zoom, and a control the
-            player never learns about may as well not be bound. */}
+        {/* One line, not a control panel. The full key map is on the first-run
+            shift card and in the manual; what a player needs HERE is only the
+            two keys that open those, so the other four stop being a wall. */}
         <div style={{
-          borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.85rem',
-          display: 'grid', gap: '0.3rem 1.4rem',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
-          fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5,
+          borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.8rem',
+          fontSize: '0.68rem', color: 'rgba(255,255,255,0.42)', lineHeight: 1.6,
         }}>
-          <div><span style={{ color: BRIGHT }}>WASD</span> walk · <span style={{ color: BRIGHT }}>MOUSE</span> look</div>
-          <div><span style={{ color: BRIGHT }}>[E]</span> use whatever the crosshair names</div>
-          <div><span style={{ color: BRIGHT }}>[L]</span> laptop — the live ladder program</div>
-          <div><span style={{ color: BRIGHT }}>[B]</span> manual — how this cell works</div>
-          <div><span style={{ color: BRIGHT }}>HOLD RIGHT-MOUSE</span> zoom in on a detail</div>
-          <div><span style={{ color: BRIGHT }}>[ESC]</span> pause and settings</div>
+          <span style={{ color: BRIGHT }}>WASD</span> walk ·{' '}
+          <span style={{ color: BRIGHT }}>[E]</span> use ·{' '}
+          <span style={{ color: BRIGHT }}>[L]</span> laptop ·{' '}
+          <span style={{ color: BRIGHT }}>[B]</span> manual
         </div>
       </div>
     </div>

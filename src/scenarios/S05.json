@@ -5,7 +5,7 @@
   "difficulty": 3,
   "tier": 2,
   "environment": "Warehouse — silo fill cell, west bay",
-  "briefing": "This one's daft. You press START and it starts pouring straight away — no box under it, nothing, just product onto the bare belt. The belt doesn't even move. FILL light comes on the second you hit start. I've never seen it do that. Nothing's been touched on it that I know of, but the guard got knocked when they brought the pallet truck through Thursday.",
+  "briefing": "Fills one carton, then sits there. Next one comes round and it just watches it go past.",
   "timeLimit": 720,
   "tags": [
     {

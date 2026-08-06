@@ -5,7 +5,7 @@
   "difficulty": 2,
   "tier": 2,
   "environment": "Warehouse — silo fill cell, west bay",
-  "briefing": "Line runs, box comes down, stops under the spout like it should — and then it just keeps filling. Product all over the floor, box never moves on, and the FILL light stays on the whole time. FULL light never comes on at all, not once. I hit STOP before it buried the belt. Been like it since we changed over to the fine grade.",
+  "briefing": "It fills, then keeps filling. Product all over the floor by the time anyone noticed.",
   "timeLimit": 720,
   "tags": [
     {

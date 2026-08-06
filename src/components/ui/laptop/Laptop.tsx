@@ -266,6 +266,15 @@ const CSS = `
   --ff-amber: #c07a00;     /* made, but nothing feeding it */
   --ff-sel: #1a56db;
   --ff-red: #b3261e;
+
+  /* Data Files shows a bit as a LAMP, so these are fills, not the stroke
+     colours above — a 3px green line reads as a wire and a filled cell reads as
+     a state, which is the distinction the two panes are making. The key in the
+     table header draws its swatches from these same two properties, for the
+     same reason the ladder key does: the key cannot end up describing a colour
+     the table stopped using. */
+  --ff-bit-off: #eef1f5;
+  --ff-bit-on: #7ce894;
 }
 @keyframes ff-fade { from { opacity: 0 } to { opacity: 1 } }
 
@@ -700,7 +709,20 @@ const CSS = `
 .ff-io-table td {
   padding: 3px 10px; border-bottom: 1px solid #eceff4; color: #333b49;
 }
-.ff-io-table tbody tr:nth-child(even) td { background: #f8fafc; }
+/* THE ZEBRA STOPS AT THE VALUE COLUMN, AND THAT :not() IS THE WHOLE POINT.
+   Everywhere else the row background is decoration; in the Value column the
+   background IS the reading. Striped plainly, this selector — one class plus
+   :nth-child plus three element names — outranks the .ff-io-val powered rule,
+   which has no element names at all, so on every EVEN row the stripe quietly
+   ate the green and left only the dark-green text behind. The bit was 1, the
+   paint loop had correctly written data-s="2", and the cell still looked off:
+   FILL_VALVE and FILL_LIGHT sat grey while RUN_LIGHT one row between them
+   glowed, purely because of where they landed in an alphabetical sort. A
+   player cannot unsee that, and the only story it tells is a false one.
+   Excluding the cell is better than out-specifying it: it leaves exactly one
+   owner for that background rather than starting a specificity arms race with
+   whatever rule someone adds to this table next. */
+.ff-io-table tbody tr:nth-child(even) td:not(.ff-io-val) { background: #f8fafc; }
 .ff-io-addr {
   font-family: ui-monospace, Consolas, monospace;
   color: var(--ff-blue); width: 96px;
@@ -710,14 +732,28 @@ const CSS = `
 .ff-io-val {
   width: 62px; text-align: center; font-weight: 700;
   font-family: ui-monospace, Consolas, monospace;
-  color: #6b7382; background: #eef1f5;
+  color: #6b7382; background: var(--ff-bit-off);
 }
-.ff-io-val[data-s="2"] { color: #06340f; background: #7ce894; }
+.ff-io-val[data-s="2"] { color: #06340f; background: var(--ff-bit-on); }
+
+/* The Data Files key. Same layout as the ladder's key below, but the swatches
+   are cell-shaped rather than the ladder's 12x3 wire stubs, because they are
+   standing in for a filled cell and a swatch should look like the thing it
+   names. Two states only: this table has no equivalent of "made, not fed" —
+   a bit is 1 or it is 0. */
+.ff-io-key { font-size: 11px; }
+.ff-io-sw {
+  width: 15px; height: 11px; border-radius: 2px; flex: none;
+  margin-left: 0.55rem; border: 1px solid #c3cad6;
+}
+.ff-io-sw:first-child { margin-left: 0; }
+.ff-io-sw-off { background: var(--ff-bit-off); }
+.ff-io-sw-on { background: var(--ff-bit-on); border-color: #4aa863; }
 
 /* Colour key in the status bar. Swatches are drawn from the same three custom
    properties the rungs use, so the key cannot describe a palette the ladder no
    longer has. */
-.ff-sb-key {
+.ff-sb-key, .ff-io-key {
   display: flex; align-items: center; gap: 0.3rem;
   color: var(--ff-dim); white-space: nowrap;
 }

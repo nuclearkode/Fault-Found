@@ -5,7 +5,7 @@
   "difficulty": 1,
   "tier": 1,
   "environment": "Warehouse — silo fill cell, west bay",
-  "briefing": "I came on at six, went to start the silo line same as always, and nothing. Press START and you get nothing at all — no RUN light, no motor, not a sound out of the panel. E-stop's out, it's twisted out and I checked it twice. The only thing that's different is the STOP button, maintenance swapped that out end of last week because the old one was sticking.",
+  "briefing": "Started fine, then stopped mid-carton. No lamp, no alarm. It won't restart from the panel.",
   "timeLimit": 600,
   "tags": [
     {
