@@ -54,3 +54,6 @@ out/
 
 # Blender scripted-edit backups (the skill makes these before any edit)
 blender_source/_backup_*/
+
+# Pre-drive-train blend snapshot (revert script lives in blender_source/drive_train/)
+blender_source/*.PREDRIVE.*.blend
